@@ -502,6 +502,10 @@ class RPCClientBase(RPCBase):  #{
         msg_list.append(bytes(int(ignore)))
         return req_id, msg_list
     #}
+    def _send_request(self, request):  #{
+        self.logger.debug('sending %r' % request)
+        self.socket.send_multipart(request)
+    #}
     def _parse_reply(self, msg_list):  #{
         """
         Parse a reply from service
@@ -570,7 +574,7 @@ class RPCClientBase(RPCBase):  #{
         def _send(method, args):
             _, msg_list = self._build_request(method, args, None, False, req_id=req_id)
             logger.debug('send: %r' % msg_list)
-            self.socket.send_multipart(msg_list)
+            self._send_request(msg_list)
 
         try:
             _send('YIELD_SEND', None)

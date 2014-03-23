@@ -20,9 +20,11 @@ Authors
 # Imports
 #-----------------------------------------------------------------------------
 
+import exceptions
 from random    import randint
-from Queue     import Queue
+from Queue     import Queue, Empty
 from threading import Event
+from types     import GeneratorType
 
 import zmq
 
@@ -69,6 +71,8 @@ class ThreadingRPCService(RPCServiceBase):
 
         self.io_thread  = None
         self.res_thread = None
+        
+        self.yield_send_queues = {}  # {<req_id> : <Queue>}
 
         # result drainage
         self._sync_ev  = Event()
@@ -117,18 +121,77 @@ class ThreadingRPCService(RPCServiceBase):
             return
         self._send_ack(req)
 
+        logger = self.logger
         ignore = req['ignore']
 
         try:
             # raise any parsing errors here
             if req['error']:
                 raise req['error']
-            # call procedure
-            res = req['proc'](*req['args'], **req['kwargs'])
+
+            if req['proc'] in ['YIELD_SEND', 'YIELD_THROW', 'YIELD_CLOSE']:
+                if req['req_id'] not in self.yield_send_queues:
+                    raise ValueError('req_id does not refer to a known generator')
+
+                self.yield_send_queues[req['req_id']].put((req['proc'], req['args']))
+                return
+            else:
+                # call procedure
+                res = req['proc'](*req['args'], **req['kwargs'])
         except Exception:
             not ignore and self._send_fail(req)
         else:
-            not ignore and self._send_ok(req, res)
+            if ignore:
+                return
+
+            if isinstance(res, GeneratorType):
+                self._handle_yield(req, res)
+            else:
+                self._send_ok(req, res)
+    #}
+    def _handle_yield(self, req, res):  #{
+        logger = self.logger
+        
+        req_id = req['req_id']
+        logger.debug('Adding reference to yield %s', req_id)
+        input_queue = self.yield_send_queues[req_id] = Queue(1)
+
+        self._send_yield(req, None)
+        gene = res
+
+        try:
+            while True:
+                while self.running:
+                    try:
+                        proc, args = input_queue.get(True, 0.5)
+                        break
+                    except Empty:
+                        pass
+                if not self.running:
+                    # Shutdown has been called. Clean-up.
+                    gene.close()
+                    return
+                
+                if proc == 'YIELD_SEND':
+                    res = gene.send(args)
+                    self._send_yield(req, res)
+
+                elif proc == 'YIELD_THROW':
+                    ex_class = getattr(exceptions, args[0], Exception)
+                    eargs = args[:2]
+                    eargs[0] = ex_class
+                    res = gene.throw(*eargs)
+                    self._send_yield(req, res)
+
+                else:
+                    gene.close()
+                    self._send_ok(req, None)
+                    break
+        except:
+            self._send_fail(req)
+        finally:
+            logger.debug('Removing reference to yield %s', req_id)
+            del self.yield_send_queues[req_id]
     #}
     def start(self):  #{
         """ Start the RPC service (non-blocking).
@@ -193,12 +256,13 @@ class ThreadingRPCService(RPCServiceBase):
                 logger.debug('I/O thread is synchronized')
                 self._sync_ev.set()
 
-                running = True
+                self.running = True
 
-                while running:
+                while self.running:
                     for socket, _ in poll():
                         if socket is task_sock:
                             request = task_sock.recv_multipart()
+                            logger.debug('io_thread received %r' % request)
                             # handle request in a thread-pool
                             self.pool.schedule(handle_request, args=(request,))
                         elif socket is res_sub:
@@ -206,9 +270,10 @@ class ThreadingRPCService(RPCServiceBase):
                             #logger.debug('received a result: %r' % result)
                             if not result[0]:
                                 logger.debug('io_thread received an EXIT signal')
-                                running = False
+                                self.running = False
                                 break
                             else:
+                                logger.debug('io_thread sending %r' % result)
                                 task_sock.send_multipart(result)
             except Exception, e:
                 logger.error(e, exc_info=True)

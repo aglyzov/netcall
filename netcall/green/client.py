@@ -141,7 +141,6 @@ class GeventRPCClient(RPCClientBase):  #{
                 if not async.is_init():
                     async_init_fn(async)
 
-
                 if msg_type in [b'OK', b'YIELD']:
                     logger.debug('async.set(result), req_id=%r' % req_id)
                     async.set(result)

@@ -137,33 +137,44 @@ class GeventRPCService(RPCServiceBase):
                 return
 
             if isinstance(res, GeneratorType):
-                logger.debug('Adding reference to yield %s', req['req_id'])
-                self.yield_send_queues[req['req_id']] = Queue(1)
-                self._send_yield(req, None)
-                gene = res
-                try:
-                    while True:
-                        proc, args = self.yield_send_queues[req['req_id']].get()
-                        if proc == 'YIELD_SEND':
-                            res = gene.send(args)
-                            self._send_yield(req, res)
-                        elif proc == 'YIELD_THROW':
-                            ex_class = getattr(exceptions, args[0], Exception)
-                            eargs = args[:2]
-                            eargs[0] = ex_class
-                            res = gene.throw(*eargs)
-                            self._send_yield(req, res)
-                        else:
-                            gene.close()
-                            self._send_ok(req, None)
-                            break
-                except:
-                    self._send_fail(req)
-                finally:
-                    logger.debug('Removing reference to yield %s', req['req_id'])
-                    del self.yield_send_queues[req['req_id']]
+                self._handle_yield(req, res)
             else:
                 self._send_ok(req, res)
+    #}
+    def _handle_yield(self, req, res):  #{
+        logger = self.logger
+        
+        req_id = req['req_id']
+        logger.debug('Adding reference to yield %s', req_id)
+        input_queue = self.yield_send_queues[req_id] = Queue(1)
+
+        self._send_yield(req, None)
+        gene = res
+
+        try:
+            while True:
+                proc, args = input_queue.get() # Will get stuck when shutdown()
+
+                if proc == 'YIELD_SEND':
+                    res = gene.send(args)
+                    self._send_yield(req, res)
+
+                elif proc == 'YIELD_THROW':
+                    ex_class = getattr(exceptions, args[0], Exception)
+                    eargs = args[:2]
+                    eargs[0] = ex_class
+                    res = gene.throw(*eargs)
+                    self._send_yield(req, res)
+
+                else:
+                    gene.close()
+                    self._send_ok(req, None)
+                    break
+        except:
+            self._send_fail(req)
+        finally:
+            logger.debug('Removing reference to yield %s', req_id)
+            del self.yield_send_queues[req_id]
     #}
     def start(self):  #{
         """ Start the RPC service (non-blocking).

@@ -4,7 +4,7 @@
 """ A simple asynchronous RPC client that shows how to:
 
     * use specific serializer
-    * make multiple RPC calls at the same time using Gevent
+    * make multiple RPC calls at the same time using Eventlet
     * handle remote exceptions
     * do load balancing
 """
@@ -16,7 +16,7 @@
 #  the file LICENSE distributed as part of this software.
 #-----------------------------------------------------------------------------
 
-from gevent.pool   import Group
+from eventlet      import GreenPool
 from netcall.green import GreenRPCClient, RemoteRPCError, RPCTimeoutError, JSONSerializer
 
 def printer(msg, func, *args):
@@ -31,10 +31,10 @@ if __name__ == '__main__':
 
     # Custom serializer/deserializer functions can be passed in. The server
     # side ones must match.
-    echo = GreenRPCClient(green_env='gevent', serializer=JSONSerializer())
+    echo = GreenRPCClient(green_env='eventlet', serializer=JSONSerializer())
     echo.connect('tcp://127.0.0.1:5555')
 
-    tasks = Group()
+    tasks = GreenPool()
     spawn = tasks.spawn
 
     spawn(printer, "[echo] Echoing \"Hi there\"", echo.echo, "Hi there")
@@ -64,7 +64,7 @@ if __name__ == '__main__':
 
     spawn(printer, "[echo] Sleeping for 2 seconds...", echo.sleep, 2.0)
 
-    math = GreenRPCClient(green_env='gevent')
+    math = GreenRPCClient(green_env='eventlet')
     # By connecting to two instances, requests are load balanced.
     math.connect('tcp://127.0.0.1:5556')
     math.connect('tcp://127.0.0.1:5557')
@@ -73,5 +73,5 @@ if __name__ == '__main__':
         for j in range(5):
             spawn(printer, "[math] Adding: %s + %s" % (i, j), math.add, i, j)
 
-    tasks.join()
+    tasks.waitall()
 

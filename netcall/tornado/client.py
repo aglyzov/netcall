@@ -26,7 +26,7 @@ from zmq.eventloop.ioloop    import IOLoop, DelayedCallback
 from tornado.concurrent import Future
 
 from ..base   import RPCClientBase
-from ..utils  import RemoteMethodBase, get_zmq_classes
+from ..utils  import RemoteMethodBase, logger, get_zmq_classes
 from ..errors import RPCTimeoutError
 
 
@@ -69,7 +69,7 @@ class TornadoRPCClient(RPCClientBase):  #{
         self.socket.on_recv(self._handle_reply)
     #}
     def _handle_reply(self, msg_list):  #{
-        self.logger.debug('received: %r' % msg_list)
+        logger.debug('received: %r' % msg_list)
         reply = self._parse_reply(msg_list)
 
         if reply is None:
@@ -141,7 +141,7 @@ class TornadoRPCClient(RPCClientBase):  #{
             if future_tout:
                 future, _ = future_tout
                 tout_msg  = "Request %s timed out after %s sec" % (req_id, timeout)
-                self.logger.debug(tout_msg)
+                logger.debug(tout_msg)
                 future.set_exception(RPCTimeoutError(tout_msg))
 
         timeout = timeout or 0

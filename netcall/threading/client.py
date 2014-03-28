@@ -27,16 +27,12 @@ from threading import Event, Timer
 try:
     from concurrent.futures import Future, TimeoutError
 except ImportError:
-    # FIXME:
-    # According to the doc/src, tornado's Future does not care about timeout
-    # and therefore don't have a TimeoutError. Expect troubles when using
-    # generators with tornado.
-    from tornado.concurrent import Future
+    from ..futures import Future, TimeoutError
 
 import zmq
 
 from ..base   import RPCClientBase
-from ..utils  import get_zmq_classes, ThreadPool
+from ..utils  import get_zmq_classes, ThreadPool, logger
 from ..errors import RPCTimeoutError
 
 
@@ -79,7 +75,7 @@ class ThreadingRPCClient(RPCClientBase):  #{
             self._ext_pool = True
 
         self._ready_ev = Event()
-        self._results  = {}  # {<msg-id> : <Future>}
+        self._futures  = {}  # {<msg-id> : <_ReturnOrYieldFuture>}
 
         # request drainage
         self._sync_ev  = Event()
@@ -123,7 +119,6 @@ class ThreadingRPCClient(RPCClientBase):  #{
         """ Forwards results from req_queue to the req_pub socket
             so that an I/O thread could send them forth to a service
         """
-        logger      = self.logger
         rcv_request = self.req_queue.get
         fwd_request = self.req_pub.send_multipart
 
@@ -154,9 +149,8 @@ class ThreadingRPCClient(RPCClientBase):  #{
             Waits for a ZMQ socket to become ready (._ready_ev), then processes incoming requests/replies
             filling result futures thus passing control to waiting threads (see .call)
         """
-        logger   = self.logger
         ready_ev = self._ready_ev
-        results  = self._results
+        futures  = self._futures
 
         srv_sock = self.socket
         req_sub = self.context.socket(zmq.SUB)
@@ -227,13 +221,13 @@ class ThreadingRPCClient(RPCClientBase):  #{
                     continue
                 
                 if msg_type == b'YIELD':
-                    results_get_fn = results.get
-                    future_init_fn = _ReturnOrYieldResult.init_as_yield
+                    futures_get_fn = futures.get
+                    future_init_fn = _ReturnOrYieldFuture.init_as_yield
                 else: # For OK and FAIL
-                    results_get_fn = results.pop
-                    future_init_fn = _ReturnOrYieldResult.init_as_return
+                    futures_get_fn = futures.pop
+                    future_init_fn = _ReturnOrYieldFuture.init_as_return
                 
-                future = results_get_fn(req_id, None)
+                future = futures_get_fn(req_id, None)
                 if future is None:
                     # result is gone, must be a timeout
                     #logger.debug('future result is gone (timeout?): req_id=%r' % req_id)
@@ -289,19 +283,19 @@ class ThreadingRPCClient(RPCClientBase):  #{
 
         if timeout and timeout > 0:
             def _abort_request():
-                result = self._results.pop(req_id, None)
+                result = self._futures.pop(req_id, None)
                 if result is not None:
                     tout_msg  = "Request %s timed out after %s sec" % (req_id, timeout)
-                    self.logger.debug(tout_msg)
+                    logger.debug(tout_msg)
                     result.set_exception(RPCTimeoutError(tout_msg))
             timer = Timer(timeout, _abort_request)
             timer.start()
         else:
             timer = None
 
-        future = _ReturnOrYieldResult(self, req_id)
-        self._results[req_id] = future
-        #self.logger.debug('waiting for result=%r' % result)
+        future = _ReturnOrYieldFuture(self, req_id)
+        self._futures[req_id] = future
+        #logger.debug('waiting for future=%r' % future)
         try:
             result = future.result()  # block waiting for a reply passed by the io_thread
         finally:
@@ -310,7 +304,6 @@ class ThreadingRPCClient(RPCClientBase):  #{
     #}
     def shutdown(self):  #{
         """Close the socket and signal the io_thread to exit"""
-        logger = self.logger
         self._ready = False
         self._ready_ev.set()
 
@@ -333,7 +326,7 @@ class ThreadingRPCClient(RPCClientBase):  #{
     #}
 #}
 
-class _ReturnOrYieldResult(object):  #{
+class _ReturnOrYieldFuture(object):  #{
 
     def __init__(self, client, req_id):
         self.is_initialized = Event()

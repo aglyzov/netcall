@@ -24,7 +24,6 @@ Authors:
 from sys       import exc_info
 from abc       import ABCMeta, abstractmethod
 from random    import randint
-from logging   import getLogger
 from traceback import format_exc
 from itertools import chain
 from functools import partial
@@ -34,7 +33,7 @@ from zmq.utils import jsonapi
 
 from .serializer import PickleSerializer
 from .errors     import RemoteRPCError, RPCError
-from .utils      import RemoteMethod
+from .utils      import logger, RemoteMethod
 
 
 #-----------------------------------------------------------------------------
@@ -43,8 +42,6 @@ from .utils      import RemoteMethod
 
 class RPCBase(object):  #{
     __metaclass__ = ABCMeta
-
-    logger = getLogger("netcall")
 
     def __init__(self, serializer=None, identity=None):  #{
         """Base class for RPC service and proxy.
@@ -87,7 +84,7 @@ class RPCBase(object):  #{
     def shutdown(self):  #{
         """ Deallocate resources (cleanup)
         """
-        self.logger.debug('closing the socket')
+        logger.debug('closing the socket')
         self.socket.close(0)
     #}
 
@@ -192,8 +189,6 @@ class RPCServiceBase(RPCBase):  #{
         'YIELD_SEND', 'YIELD_THROW', 'YIELD_CLOSE'
     ]
 
-    logger = getLogger("netcall.service")
-
     def __init__(self, *args, **kwargs):  #{
         """
         Parameters
@@ -235,7 +230,7 @@ class RPCServiceBase(RPCBase):  #{
         }
         """
         if len(msg_list) < 6 or b'|' not in msg_list:
-            self.logger.error('bad request: %r' % msg_list)
+            logger.error('bad request: %r' % msg_list)
             return None
 
         error    = None
@@ -292,7 +287,7 @@ class RPCServiceBase(RPCBase):  #{
 
             Notice: reply is a list produced by self._build_reply()
         """
-        self.logger.debug('sending %r' % reply)
+        logger.debug('sending %r' % reply)
         self.socket.send_multipart(reply)
     #}
     def _send_ack(self, request):  #{
@@ -485,8 +480,6 @@ class RPCServiceBase(RPCBase):  #{
 class RPCClientBase(RPCBase):  #{
     """A service proxy to for talking to an RPCService."""
 
-    logger = getLogger("netcall.client")
-
     def _create_socket(self):  #{
         super(RPCClientBase, self)._create_socket()
 
@@ -503,7 +496,7 @@ class RPCClientBase(RPCBase):  #{
         return req_id, msg_list
     #}
     def _send_request(self, request):  #{
-        self.logger.debug('sending %r' % request)
+        logger.debug('sending %r' % request)
         self.socket.send_multipart(request)
     #}
     def _parse_reply(self, msg_list):  #{
@@ -523,7 +516,7 @@ class RPCClientBase(RPCBase):  #{
         }
         """
         if len(msg_list) < 4 or msg_list[0] != b'|':
-            self.logger.error('bad reply: %r' % msg_list)
+            logger.error('bad reply: %r' % msg_list)
             return None
 
         msg_type = msg_list[2]
@@ -549,7 +542,7 @@ class RPCClientBase(RPCBase):  #{
                 else:
                     result = RemoteRPCError(error['ename'], error['evalue'], error['traceback'])
             except Exception, e:
-                self.logger.error('unexpected error while decoding FAIL', exc_info=True)
+                logger.error('unexpected error while decoding FAIL', exc_info=True)
                 result = RPCError('unexpected error while decoding FAIL: %s' % e)
         else:
             result = RPCError('bad message type: %r' % msg_type)
@@ -569,7 +562,6 @@ class RPCClientBase(RPCBase):  #{
         That is, the first element of the tuple is ignored.
         recv_generator should NOT yield the data from the very first YIELD reply.
         """
-        logger = self.logger
 
         def _send(method, args):
             _, msg_list = self._build_request(method, args, None, False, req_id=req_id)
@@ -594,9 +586,6 @@ class RPCClientBase(RPCBase):  #{
             logger.debug('generator.close()')
             _send('YIELD_CLOSE', None)
             next(recv_generator)
-            raise e
-        except Exception, e:
-            logger.warning(e)
             raise e
         finally:
             logger.debug('_yielder exits (req_id=%s)', req_id)

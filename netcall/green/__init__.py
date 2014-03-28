@@ -11,9 +11,9 @@ Example
 
 To create a simple service::
 
-    from netcall.green import GeventRPCService
+    from netcall.green import GreenRPCService
 
-    echo = GeventRPCService()
+    echo = GreenRPCService()
 
     @echo.task
     def echo(self, s):
@@ -26,9 +26,9 @@ To create a simple service::
 
 To talk to this service::
 
-    from netcall.green import GeventRPCClient
+    from netcall.green import GreenRPCClient
 
-    p = GeventRPCClient()
+    p = GreenRPCClient()
     p.connect('tcp://127.0.0.1:5555')
     p.echo('Hi there')
     'Hi there'
@@ -50,6 +50,6 @@ from ..utils      import RemoteMethod
 from ..errors     import RPCError, RemoteRPCError, RPCTimeoutError
 from ..serializer import *
 
-from .service import GeventRPCService
-from .client  import GeventRPCClient
+from .service import GreenRPCService
+from .client  import GreenRPCClient
 

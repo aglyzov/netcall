@@ -1,7 +1,7 @@
 # vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
 
 """
-Gevent version of the RPC service
+Green version of the RPC service
 
 Authors:
 
@@ -24,34 +24,37 @@ Authors:
 import exceptions
 from types import GeneratorType
 
-import gevent
-from gevent.queue import Queue
 import zmq
 
 from ..base  import RPCServiceBase
-from ..utils import get_zmq_classes
+from ..utils import logger, get_zmq_classes, detect_green_env, get_green_tools
 
 
 #-----------------------------------------------------------------------------
 # RPC Service
 #-----------------------------------------------------------------------------
 
-class GeventRPCService(RPCServiceBase):
+class GreenRPCService(RPCServiceBase):
     """ An asynchronous RPC service that takes requests over a ROUTER socket.
-        Using Gevent compatibility layer from PyZMQ (zmq.green).
+        Using green threads for concurrency.
+        Green environment is provided by either Gevent, Eventlet or Greenhouse
+        and can be autodetected.
     """
-    def __init__(self, context=None, **kwargs):  #{
+    def __init__(self, green_env=None, context=None, **kwargs):  #{
         """
         Parameters
         ==========
-        context : Context
+        green_env  : None | 'gevent' | 'eventlet' | 'greenhouse'
+        context    : <Context>
             An existing Context instance, if not passed, green.Context.instance()
             will be used.
-        serializer : Serializer
+        serializer : <Serializer>
             An instance of a Serializer subclass that will be used to serialize
             and deserialize args, kwargs and the result.
         """
-        Context, _ = get_zmq_classes()
+        self.green_env = green_env or detect_green_env() or 'gevent'
+
+        Context, _ = get_zmq_classes(env=self.green_env)
 
         if context is None:
             self.context = Context.instance()
@@ -59,14 +62,16 @@ class GeventRPCService(RPCServiceBase):
             assert isinstance(context, Context)
             self.context = context
 
-        super(GeventRPCService, self).__init__(**kwargs)
+        super(GreenRPCService, self).__init__(**kwargs)
+
+        _, _, _, _, self.Queue = get_green_tools(env=self.green_env)
 
         self.greenlet = None
-        self.yield_send_queues = {}  # {<req_id> : <gevent.queue.Queue>}
+        self.yield_send_queues = {}  # {<req_id> : <Queue>}
         # Can also use collections.deque, append() and popleft() being thread safe
     #}
     def _create_socket(self):  #{
-        super(GeventRPCService, self)._create_socket()
+        super(GreenRPCService, self)._create_socket()
         self.socket = self.context.socket(zmq.ROUTER)
     #}
     def _handle_request(self, msg_list):  #{
@@ -113,7 +118,6 @@ class GeventRPCService(RPCServiceBase):
             return
         self._send_ack(req)
 
-        logger = self.logger
         ignore = req['ignore']
 
         try:
@@ -137,33 +141,42 @@ class GeventRPCService(RPCServiceBase):
                 return
 
             if isinstance(res, GeneratorType):
-                logger.debug('Adding reference to yield %s', req['req_id'])
-                self.yield_send_queues[req['req_id']] = Queue(1)
-                self._send_yield(req, None)
-                gene = res
-                try:
-                    while True:
-                        proc, args = self.yield_send_queues[req['req_id']].get()
-                        if proc == 'YIELD_SEND':
-                            res = gene.send(args)
-                            self._send_yield(req, res)
-                        elif proc == 'YIELD_THROW':
-                            ex_class = getattr(exceptions, args[0], Exception)
-                            eargs = args[:2]
-                            eargs[0] = ex_class
-                            res = gene.throw(*eargs)
-                            self._send_yield(req, res)
-                        else:
-                            gene.close()
-                            self._send_ok(req, None)
-                            break
-                except:
-                    self._send_fail(req)
-                finally:
-                    logger.debug('Removing reference to yield %s', req['req_id'])
-                    del self.yield_send_queues[req['req_id']]
+                self._handle_yield(req, res)
             else:
                 self._send_ok(req, res)
+    #}
+    def _handle_yield(self, req, res):  #{
+        req_id = req['req_id']
+        logger.debug('Adding reference to yield %s', req_id)
+        input_queue = self.yield_send_queues[req_id] = self.Queue(1)
+
+        self._send_yield(req, None)
+        gene = res
+
+        try:
+            while True:
+                proc, args = input_queue.get() # Will get stuck when shutdown()
+
+                if proc == 'YIELD_SEND':
+                    res = gene.send(args)
+                    self._send_yield(req, res)
+
+                elif proc == 'YIELD_THROW':
+                    ex_class = getattr(exceptions, args[0], Exception)
+                    eargs = args[:2]
+                    eargs[0] = ex_class
+                    res = gene.throw(*eargs)
+                    self._send_yield(req, res)
+
+                else:
+                    gene.close()
+                    self._send_ok(req, None)
+                    break
+        except:
+            self._send_fail(req)
+        finally:
+            logger.debug('Removing reference to yield %s', req_id)
+            del self.yield_send_queues[req_id]
     #}
     def start(self):  #{
         """ Start the RPC service (non-blocking).
@@ -174,17 +187,20 @@ class GeventRPCService(RPCServiceBase):
         assert self.bound or self.connected, 'not bound/connected?'
         assert self.greenlet is None, 'already started'
 
+        spawn = get_green_tools(env=self.green_env)[0]
+
         def receive_reply():
             while True:
                 try:
                     request = self.socket.recv_multipart()
-                except:
-                    #logger.warning('socket error', exc_info=True)
+                except Exception, e:
+                    logger.warning(e)
                     break
-                gevent.spawn(self._handle_request, request)
-            self.logger.debug('receive_reply exited')
+                spawn(self._handle_request, request)
+            logger.debug('receive_reply exited')
 
-        self.greenlet = gevent.spawn(receive_reply)
+        self.greenlet = spawn(receive_reply)
+
         return self.greenlet
     #}
     def stop(self, ):  #{
@@ -193,7 +209,7 @@ class GeventRPCService(RPCServiceBase):
             return  # nothing to do
         bound     = self.bound
         connected = self.connected
-        self.logger.debug('resetting the socket')
+        logger.debug('resetting the socket')
         self.reset()
         # wait for the greenlet to exit (closed socket)
         self.greenlet.join()
@@ -207,16 +223,14 @@ class GeventRPCService(RPCServiceBase):
         self.stop()
         self.socket.close(0)
     #}
-    def serve(self, greenlets=[]):  #{
+    def serve(self):  #{
         """ Serve RPC requests (blocking)
 
-            Waits for specified greenlets or for this greenlet
+            Waits for the serving greenlet to exit.
         """
-        if greenlets:
-            return gevent.joinall(greenlets)
-        else:
-            if self.greenlet is None:
-                self.start()
-            return self.greenlet.join()
+        if self.greenlet is None:
+            self.start()
+
+        return self.greenlet.join()
     #}
 

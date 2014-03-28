@@ -25,14 +25,14 @@ from random    import randint
 from threading import Event, Timer
 
 try:
-    from concurrent.futures import Future
+    from concurrent.futures import Future, TimeoutError
 except ImportError:
-    from tornado.concurrent import Future
+    from ..futures import Future, TimeoutError
 
 import zmq
 
 from ..base   import RPCClientBase
-from ..utils  import get_zmq_classes, ThreadPool
+from ..utils  import get_zmq_classes, ThreadPool, logger
 from ..errors import RPCTimeoutError
 
 
@@ -40,7 +40,7 @@ from ..errors import RPCTimeoutError
 # RPC Service Proxy
 #-----------------------------------------------------------------------------
 
-class ThreadingRPCClient(RPCClientBase):
+class ThreadingRPCClient(RPCClientBase):  #{
     """ An asynchronous RPC client whose requests will not block.
         Uses the standard Python threading API for concurrency.
     """
@@ -75,7 +75,7 @@ class ThreadingRPCClient(RPCClientBase):
             self._ext_pool = True
 
         self._ready_ev = Event()
-        self._results  = {}  # {<msg-id> : <Future>}
+        self._futures  = {}  # {<msg-id> : <_ReturnOrYieldFuture>}
 
         # request drainage
         self._sync_ev  = Event()
@@ -106,11 +106,19 @@ class ThreadingRPCClient(RPCClientBase):
         self._ready_ev.set()  # wake up the io_reader
         return result
     #}
+    def _send_request(self, request):  #{
+        """ Send a multipart request to a service.
+            Here we send the request down the internal req_pub socket
+            so that an io_thread could send it back to the service.
+
+            Notice: request is a list produced by self._build_request()
+        """
+        self.req_queue.put(request)
+    #}
     def _req_thread(self):  #{
         """ Forwards results from req_queue to the req_pub socket
             so that an I/O thread could send them forth to a service
         """
-        logger      = self.logger
         rcv_request = self.req_queue.get
         fwd_request = self.req_pub.send_multipart
 
@@ -141,9 +149,8 @@ class ThreadingRPCClient(RPCClientBase):
             Waits for a ZMQ socket to become ready (._ready_ev), then processes incoming requests/replies
             filling result futures thus passing control to waiting threads (see .call)
         """
-        logger   = self.logger
         ready_ev = self._ready_ev
-        results  = self._results
+        futures  = self._futures
 
         srv_sock = self.socket
         req_sub = self.context.socket(zmq.SUB)
@@ -212,18 +219,27 @@ class ThreadingRPCClient(RPCClientBase):
                 if msg_type == b'ACK':
                     #logger.debug('skipping ACK, req_id=%r' % req_id)
                     continue
-
-                future = results.pop(req_id, None)
+                
+                if msg_type == b'YIELD':
+                    futures_get_fn = futures.get
+                    future_init_fn = _ReturnOrYieldFuture.init_as_yield
+                else: # For OK and FAIL
+                    futures_get_fn = futures.pop
+                    future_init_fn = _ReturnOrYieldFuture.init_as_return
+                
+                future = futures_get_fn(req_id, None)
                 if future is None:
                     # result is gone, must be a timeout
                     #logger.debug('future result is gone (timeout?): req_id=%r' % req_id)
                     continue
+                if not future.is_init():
+                    future_init_fn(future)
 
-                if msg_type == b'OK':
-                    #logger.debug('future.set_result(result), req_id=%r' % req_id)
+                if msg_type in [b'OK', b'YIELD']:
+                    logger.debug('future.set_result(result), req_id=%r' % req_id)
                     future.set_result(result)
                 else:
-                    #logger.debug('future.set_exception(result), req_id=%r' % req_id)
+                    logger.debug('future.set_exception(result), req_id=%r' % req_id)
                     future.set_exception(result)
 
         # -- cleanup --
@@ -267,19 +283,19 @@ class ThreadingRPCClient(RPCClientBase):
 
         if timeout and timeout > 0:
             def _abort_request():
-                result = self._results.pop(req_id, None)
+                result = self._futures.pop(req_id, None)
                 if result is not None:
                     tout_msg  = "Request %s timed out after %s sec" % (req_id, timeout)
-                    self.logger.debug(tout_msg)
+                    logger.debug(tout_msg)
                     result.set_exception(RPCTimeoutError(tout_msg))
             timer = Timer(timeout, _abort_request)
             timer.start()
         else:
             timer = None
 
-        future = Future()
-        self._results[req_id] = future
-        #logger.debug('waiting for result=%r' % result)
+        future = _ReturnOrYieldFuture(self, req_id)
+        self._futures[req_id] = future
+        #logger.debug('waiting for future=%r' % future)
         try:
             result = future.result()  # block waiting for a reply passed by the io_thread
         finally:
@@ -288,7 +304,6 @@ class ThreadingRPCClient(RPCClientBase):
     #}
     def shutdown(self):  #{
         """Close the socket and signal the io_thread to exit"""
-        logger = self.logger
         self._ready = False
         self._ready_ev.set()
 
@@ -309,4 +324,64 @@ class ThreadingRPCClient(RPCClientBase):
             self.pool.stop()
             self.pool.join()
     #}
+#}
 
+class _ReturnOrYieldFuture(object):  #{
+
+    def __init__(self, client, req_id):
+        self.is_initialized = Event()
+        self.return_or_except = Future()
+        self.yield_queue = Queue(1)
+        self.client = client
+        self.req_id = req_id
+
+    def init_as_return(self):
+        assert(not self.is_init())
+        self.is_yield = False
+        self.is_initialized.set()
+
+    def init_as_yield(self):
+        assert(not self.is_init())
+        self.is_yield = True
+        self.is_initialized.set()
+
+    def is_init(self):
+        return self.is_initialized.is_set()
+
+    def set_result(self, obj):
+        assert(self.is_init())
+        if self.is_yield:
+            self.yield_queue.put(obj)
+        else:
+            self.return_or_except.set_result(obj)
+
+    def set_exception(self, ex):
+        assert(self.is_init())
+        self.return_or_except.set_exception(ex)
+        if self.is_yield:
+            self.yield_queue.put(None)
+
+    def _try_except(self):
+        try:
+            self.return_or_except.result(timeout=0)
+        except TimeoutError:
+            pass
+
+    def result(self):
+        self.is_initialized.wait()
+
+        if not self.is_yield:
+            return self.return_or_except.result()
+
+        else:
+            self._try_except()
+            self.yield_queue.get()
+
+            def recv_yielder():
+                while True:
+                    obj = self.yield_queue.get()
+                    self._try_except()
+                    yield None, obj
+
+            return self.client._yielder(recv_yielder(), self.req_id)
+#}

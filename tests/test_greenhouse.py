@@ -8,32 +8,34 @@ from .client_mixins import ClientBindConnectMixIn
 from .rpc_mixins    import RPCCallsMixIn
 
 
-class GeventBase(BaseCase):
+class GreenhouseBase(BaseCase):
 
     def setUp(self):
-        green_env  = 'gevent'
+        green_env  = 'greenhouse'
         Context, _ = get_zmq_classes(env=green_env)
+
         self.context = Context()
         self.client  = GreenRPCClient(context=self.context, green_env=green_env)
         self.service = GreenRPCService(context=self.context, green_env=green_env)
 
-        super(GeventBase, self).setUp()
+        super(GreenhouseBase, self).setUp()
 
     def tearDown(self):
         self.client.shutdown()
         self.service.shutdown()
         self.context.term()
 
-        super(GeventBase, self).tearDown()
-
+        super(GreenhouseBase, self).tearDown()
 
 try:
-    import gevent
+    raise ImportError  # disable immature greenhouse support
 
-    class GeventClientBindConnectTest(ClientBindConnectMixIn, GeventBase):
+    import greenhouse
+
+    class GeventClientBindConnectTest(ClientBindConnectMixIn, GreenhouseBase):
         pass
 
-    class GeventRPCCallsTest(RPCCallsMixIn, GeventBase):
+    class GeventRPCCallsTest(RPCCallsMixIn, GreenhouseBase):
         pass
 
 except ImportError:

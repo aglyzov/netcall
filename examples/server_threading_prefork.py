@@ -7,7 +7,7 @@ A simple RPC server that shows how to:
 * start several worker processes
 * use zmq proxy device to load balance requests to the workers
 * make each worker to serve multiple RPC services asynchronously
-  using Gevent cooperative multitasking
+  using the Python Threading multitasking
 
 """
 
@@ -19,21 +19,17 @@ A simple RPC server that shows how to:
 #-----------------------------------------------------------------------------
 
 
-from gipc   import start_process
-from gevent import joinall, sleep as green_sleep, spawn
-
 from os              import getpid
-from multiprocessing import cpu_count
+from time            import sleep
+from multiprocessing import Process, cpu_count
 
-from zmq           import ROUTER, DEALER
-from netcall.green import GreenRPCService, JSONSerializer
-from netcall.utils import get_zmq_classes, green_device
+from zmq               import ROUTER, DEALER
+from zmq.devices       import ThreadProxy
+from netcall.threading import ThreadingRPCService, JSONSerializer
+from netcall.utils     import get_zmq_classes
 
 
-class EchoService(GreenRPCService):
-    def __init__(self, **kwargs):
-        kwargs['green_env'] = 'gevent'
-        super(EchoService, self).__init__(**kwargs)
+class EchoService(ThreadingRPCService):
 
     def echo(self, s):
         print "<pid:%s> %r echo %r" % (getpid(), self.connected, s)
@@ -41,15 +37,12 @@ class EchoService(GreenRPCService):
 
     def sleep(self, t):
         print "<pid:%s> %r sleep %s" % (getpid(), self.connected, t)
-        green_sleep(t)
+        sleep(t)
 
     def error(self):
         raise ValueError('raising ValueError for fun!')
 
-class MathService(GreenRPCService):
-    def __init__(self, **kwargs):
-        kwargs['green_env'] = 'gevent'
-        super(MathService, self).__init__(**kwargs)
+class MathService(ThreadingRPCService):
 
     def add(self, a, b):
         print "<pid:%s> %r add %r %r" % (getpid(), self.connected, a, b)
@@ -67,11 +60,12 @@ class MathService(GreenRPCService):
         print "<pid:%s> %r divide %r %r" % (getpid(), self.connected, a, b)
         return a/b
 
-class Worker(object):
+class Worker(Process):
+
     def run(self):
         # Multiple RPCService instances can be run in a single process
-        # via Greenlets (Gevent cooperative multitasking)
-        Context, _ = get_zmq_classes(env='gevent')
+        # via Python Threads
+        Context, _ = get_zmq_classes()
         context = Context()
 
         # Custom serializer/deserializer functions can be passed in. The server
@@ -88,14 +82,13 @@ class Worker(object):
         math2.connect('ipc:///tmp/rpc-demo-math2.service')
 
         # Next we spawn service greenlets and wait for them to exit
-        joinall([
-            echo.start(),
-            math1.start(),
-            math2.start(),
-        ])
+        echo  .start()
+        math1 .start()
+        math2 .start()
 
-    def start(self):
-        start_process(self.run)
+        echo  .serve()
+        math1 .serve()
+        math2 .serve()
 
 
 if __name__ == '__main__':
@@ -103,27 +96,24 @@ if __name__ == '__main__':
     for w in workers:
         w.start()
 
-    Context, Poller = get_zmq_classes(env='gevent')
-    context = Context()
+    echo_proxy  = ThreadProxy(ROUTER, DEALER)
+    math1_proxy = ThreadProxy(ROUTER, DEALER)
+    math2_proxy = ThreadProxy(ROUTER, DEALER)
 
-    echo_inp  = context.socket(ROUTER)
-    math1_inp = context.socket(ROUTER)
-    math2_inp = context.socket(ROUTER)
+    echo_proxy  .bind_in('tcp://127.0.0.1:5555')
+    math1_proxy .bind_in('tcp://127.0.0.1:5556')
+    math2_proxy .bind_in('tcp://127.0.0.1:5557')
 
-    echo_out  = context.socket(DEALER)
-    math1_out = context.socket(DEALER)
-    math2_out = context.socket(DEALER)
+    echo_proxy  .bind_out('ipc:///tmp/rpc-demo-echo.service')
+    math1_proxy .bind_out('ipc:///tmp/rpc-demo-math1.service')
+    math2_proxy .bind_out('ipc:///tmp/rpc-demo-math2.service')
 
-    echo_inp  .bind('tcp://127.0.0.1:5555')
-    math1_inp .bind('tcp://127.0.0.1:5556')
-    math2_inp .bind('tcp://127.0.0.1:5557')
+    echo_proxy  .start()
+    math1_proxy .start()
+    math2_proxy .start()
 
-    echo_out  .bind('ipc:///tmp/rpc-demo-echo.service')
-    math1_out .bind('ipc:///tmp/rpc-demo-math1.service')
-    math2_out .bind('ipc:///tmp/rpc-demo-math2.service')
+    while True:
+        echo_proxy  .join(0.1)
+        math1_proxy .join(0.1)
+        math2_proxy .join(0.1)
 
-    joinall([
-        spawn(green_device, echo_inp,  echo_out,  env='gevent'),
-        spawn(green_device, math1_inp, math1_out, env='gevent'),
-        spawn(green_device, math2_inp, math2_out, env='gevent'),
-    ])

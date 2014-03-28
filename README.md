@@ -1,11 +1,16 @@
 # NetCall -- a simple Python RPC system
 
 This is a simple Python [RPC](http://en.wikipedia.org/wiki/Remote_procedure_call)
-system based on [ZeroMQ](http://zeromq.org/tutorials:dealer-and-router)
-and [IOLoop](http://zeromq.github.io/pyzmq/api/generated/zmq.eventloop.ioloop.html#zmq.eventloop.ioloop.ZMQIOLoop)/[Gevent](http://www.gevent.org/).
+system using [ZeroMQ](http://zeromq.org/tutorials:dealer-and-router) as a transport
+and supporting various concurrency techniques:
+[Python Threading](http://docs.python.org/2.7/library/threading.html),
+[Tornado/IOLoop](http://zeromq.github.io/pyzmq/api/generated/zmq.eventloop.ioloop.html#zmq.eventloop.ioloop.ZMQIOLoop),
+[Gevent](http://www.gevent.org/),
+[Eventlet](http://eventlet.net/),
+[Greenhouse](http://teepark.github.io/greenhouse/master/),
 
 Initially the code was forked from [ZPyRPC](https://github.com/ellisonbg/zpyrpc) in Feb 2014.
-The fork has added [Gevent](http://www.gevent.org/) support, refactored code, made incompatible API changes,
+The fork has added support for Python Threading and various Greenlet environments, refactored code, made incompatible API changes,
 added new features and examples.
 
 ## Feature Overview
@@ -15,8 +20,8 @@ added new features and examples.
 * Really easy API
 * Auto load balancing of multiple services (thanks to ZeroMQ)
 * Full [ZeroMQ routing](http://zeromq.org/tutorials:dealer-and-router) as a bonus
-* Asynchronous servers (IOLoop or Gevent)
-* Both synchronous and asynchronous clients (IOLoop or Gevent)
+* Asynchronous servers (Threading, Tornado/IOLoop, Gevent, Eventlet, Greenhouse)
+* Both synchronous and asynchronous clients (Threading, Tornado/IOLoop, Gevent, Eventlet, Greenhouse)
 * Ability to set a timeout on RPC calls
 * Ability to run multiple services in a single process
 * Pluggable serialization (Pickle [default], JSON, [MessagePack](http://msgpack.org/))
@@ -46,9 +51,9 @@ echo.serve()
 To talk to this service:
 
 ```python
-from netcall.green import GeventRPCClient
+from netcall.threading import ThreadingRPCClient
 
-p = GeventRPCClient()
+p = ThreadingRPCClient()
 p.connect('tcp://127.0.0.1:5555')
 p.connect('ipc:///tmp/echo.service')  # auto load balancing
 p.echo('Hi there')

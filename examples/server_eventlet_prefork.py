@@ -7,7 +7,7 @@ A simple RPC server that shows how to:
 * start several worker processes
 * use zmq proxy device to load balance requests to the workers
 * make each worker to serve multiple RPC services asynchronously
-  using Gevent cooperative multitasking
+  using Eventlet cooperative multitasking
 
 """
 
@@ -18,12 +18,10 @@ A simple RPC server that shows how to:
 #  the file LICENSE, distributed as part of this software.
 #-----------------------------------------------------------------------------
 
-
-from gipc   import start_process
-from gevent import joinall, sleep as green_sleep, spawn
+from eventlet import sleep as green_sleep, spawn
 
 from os              import getpid
-from multiprocessing import cpu_count
+from multiprocessing import Process, cpu_count
 
 from zmq           import ROUTER, DEALER
 from netcall.green import GreenRPCService, JSONSerializer
@@ -32,7 +30,7 @@ from netcall.utils import get_zmq_classes, green_device
 
 class EchoService(GreenRPCService):
     def __init__(self, **kwargs):
-        kwargs['green_env'] = 'gevent'
+        kwargs['green_env'] = 'eventlet'
         super(EchoService, self).__init__(**kwargs)
 
     def echo(self, s):
@@ -48,7 +46,7 @@ class EchoService(GreenRPCService):
 
 class MathService(GreenRPCService):
     def __init__(self, **kwargs):
-        kwargs['green_env'] = 'gevent'
+        kwargs['green_env'] = 'eventlet'
         super(MathService, self).__init__(**kwargs)
 
     def add(self, a, b):
@@ -67,11 +65,11 @@ class MathService(GreenRPCService):
         print "<pid:%s> %r divide %r %r" % (getpid(), self.connected, a, b)
         return a/b
 
-class Worker(object):
+class Worker(Process):
     def run(self):
         # Multiple RPCService instances can be run in a single process
-        # via Greenlets (Gevent cooperative multitasking)
-        Context, _ = get_zmq_classes(env='gevent')
+        # via Greenlets (Eventlet cooperative multitasking)
+        Context, _ = get_zmq_classes(env='eventlet')
         context = Context()
 
         # Custom serializer/deserializer functions can be passed in. The server
@@ -88,22 +86,24 @@ class Worker(object):
         math2.connect('ipc:///tmp/rpc-demo-math2.service')
 
         # Next we spawn service greenlets and wait for them to exit
-        joinall([
+        services = [
             echo.start(),
             math1.start(),
             math2.start(),
-        ])
-
-    def start(self):
-        start_process(self.run)
+        ]
+        for service in services:
+            service.wait()
 
 
 if __name__ == '__main__':
+    from netcall.utils import setup_logger
+    setup_logger()
+
     workers = [Worker() for _ in range(cpu_count())]
     for w in workers:
         w.start()
 
-    Context, Poller = get_zmq_classes(env='gevent')
+    Context, _ = get_zmq_classes(env='eventlet')
     context = Context()
 
     echo_inp  = context.socket(ROUTER)
@@ -122,8 +122,11 @@ if __name__ == '__main__':
     math1_out .bind('ipc:///tmp/rpc-demo-math1.service')
     math2_out .bind('ipc:///tmp/rpc-demo-math2.service')
 
-    joinall([
-        spawn(green_device, echo_inp,  echo_out,  env='gevent'),
-        spawn(green_device, math1_inp, math1_out, env='gevent'),
-        spawn(green_device, math2_inp, math2_out, env='gevent'),
-    ])
+    devices = [
+        spawn(green_device, echo_inp,  echo_out,  env='eventlet'),
+        spawn(green_device, math1_inp, math1_out, env='eventlet'),
+        spawn(green_device, math2_inp, math2_out, env='eventlet'),
+    ]
+    for device in devices:
+        device.wait()
+

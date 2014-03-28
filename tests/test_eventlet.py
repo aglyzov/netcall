@@ -8,32 +8,32 @@ from .client_mixins import ClientBindConnectMixIn
 from .rpc_mixins    import RPCCallsMixIn
 
 
-class GeventBase(BaseCase):
+class EventletBase(BaseCase):
 
     def setUp(self):
-        green_env  = 'gevent'
+        green_env  = 'eventlet'
         Context, _ = get_zmq_classes(env=green_env)
         self.context = Context()
         self.client  = GreenRPCClient(context=self.context, green_env=green_env)
         self.service = GreenRPCService(context=self.context, green_env=green_env)
 
-        super(GeventBase, self).setUp()
+        super(EventletBase, self).setUp()
 
     def tearDown(self):
         self.client.shutdown()
         self.service.shutdown()
         self.context.term()
 
-        super(GeventBase, self).tearDown()
+        super(EventletBase, self).tearDown()
 
 
 try:
-    import gevent
+    import eventlet
 
-    class GeventClientBindConnectTest(ClientBindConnectMixIn, GeventBase):
+    class EventletClientBindConnectTest(ClientBindConnectMixIn, EventletBase):
         pass
 
-    class GeventRPCCallsTest(RPCCallsMixIn, GeventBase):
+    class EventletRPCCallsTest(RPCCallsMixIn, EventletBase):
         pass
 
 except ImportError:

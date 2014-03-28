@@ -1,5 +1,6 @@
 # vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
 
+from logging import WARNING, ERROR
 from unittest import TestCase
 
 from shutil   import rmtree
@@ -7,7 +8,9 @@ from tempfile import mkdtemp
 
 from netcall.utils import setup_logger
 
-logger = setup_logger()
+logger = setup_logger(level=WARNING)
+#logger = setup_logger()
+setup_logger('greenhouse')
 
 
 class BaseCase(TestCase):

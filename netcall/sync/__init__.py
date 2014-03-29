@@ -4,9 +4,9 @@ from time import time
 
 import zmq
 
-from ..base   import RPCClientBase
-from ..errors import RPCTimeoutError
-from ..utils  import logger, get_zmq_classes
+from ..base_client import RPCClientBase
+from ..errors      import RPCTimeoutError
+from ..utils       import logger, get_zmq_classes
 
 
 #-----------------------------------------------------------------------------
@@ -37,7 +37,12 @@ class SyncRPCClient(RPCClientBase):  #{
 
         super(SyncRPCClient, self).__init__(**kwargs)
     #}
-
+    
+    def _get_tools(self):  #{
+        "Returns a tuple (Event, Queue, Future, TimeoutError)"
+        pass # Not needed in this implementation
+    #}
+    
     def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):  #{
         """
         Call the remote method with *args and **kwargs

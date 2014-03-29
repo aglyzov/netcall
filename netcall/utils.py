@@ -146,7 +146,7 @@ def get_zmq_classes(env=None):  #{
 #}
 def get_green_tools(env=None):  #{
     """ Returns a tuple of callables
-          (spawn, spawn_later, Event, AsyncResult, Queue)
+          (spawn, spawn_later, Event, AsyncResult, Queue, Empty)
         compatible with the current green environment.
 
         Tries to detect a monkey-patched green thread environment
@@ -159,13 +159,14 @@ def get_green_tools(env=None):  #{
     if env == 'gevent':
         from gevent       import spawn, spawn_later
         from gevent.event import Event
-        from gevent.queue import Queue
+        from gevent.queue import Queue, Empty
         threading = gevent_patched_threading()
         def Condition(*args, **kwargs):
             return threading._Condition(*args, **kwargs)
 
     elif env == 'eventlet':
         from eventlet                 import Queue, spawn as _spawn, spawn_after
+        from eventlet.queue           import Empty
         from eventlet.green.threading import Event, Condition
 
         def spawn(*ar, **kw):
@@ -175,7 +176,7 @@ def get_green_tools(env=None):  #{
             g = spawn_after(*ar, **kw); g.join = g.wait; return g
 
     elif env == 'greenhouse':
-        from greenhouse import greenlet, schedule, schedule_in, Event, Condition, Queue
+        from greenhouse import greenlet, schedule, schedule_in, Event, Condition, Queue, Empty
         class Greenlet(object):
             def __init__(self, func, *args, **kwargs):
                 self.exit_ev = Event()
@@ -207,7 +208,7 @@ def get_green_tools(env=None):  #{
     else:
         raise ValueError('unsupported green environment %r' % env)
 
-    return spawn, spawn_later, Event, Condition, Queue
+    return spawn, spawn_later, Event, Condition, Queue, Empty
 #}
 def green_device(inp, out, env=None):  #{
     env   = env or detect_green_env() or 'gevent'

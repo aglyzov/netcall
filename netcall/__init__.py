@@ -50,11 +50,12 @@ To talk to this service:
 # for tornado versions of the classes import netcall.tornado
 # for gevent versions of the classes import netcall.green
 
-from .base       import RPCServiceBase, RPCClientBase
-from .utils      import logger, RemoteMethod, ThreadPool, get_zmq_classes, detect_green_env
-from .errors     import RPCError, RemoteRPCError, RPCTimeoutError
-from .serializer import *
+from .base_client  import RPCClientBase
+from .base_service import RPCServiceBase
+from .utils        import logger, RemoteMethod, ThreadPool, get_zmq_classes, detect_green_env
+from .errors       import RPCError, RemoteRPCError, RPCTimeoutError
+from .serializer   import *
 
-from .sync       import SyncRPCClient
-from .threading  import ThreadingRPCService, ThreadingRPCClient
+from .sync         import SyncRPCClient
+from .threading    import ThreadingRPCService, ThreadingRPCClient
 

@@ -22,10 +22,10 @@ Authors:
 # Imports
 #-----------------------------------------------------------------------------
 
-from ..base    import RPCClientBase
-from ..utils   import logger, get_zmq_classes, detect_green_env, get_green_tools
-from ..errors  import RPCTimeoutError
-from ..futures import Future, TimeoutError
+from ..base_client import RPCClientBase
+from ..utils       import logger, get_zmq_classes, detect_green_env, get_green_tools
+from ..errors      import RPCTimeoutError
+from ..futures     import Future, TimeoutError
 
 
 #-----------------------------------------------------------------------------
@@ -61,7 +61,7 @@ class GreenRPCClient(RPCClientBase):  #{
 
         super(GreenRPCClient, self).__init__(**kwargs)  # base class
 
-        spawn, _, Event, _, _ = get_green_tools(env=self.green_env)
+        spawn, _, Event, _, _, _ = get_green_tools(env=self.green_env)
 
         self._ready_ev = Event()
         self._exit_ev  = Event()
@@ -127,10 +127,10 @@ class GreenRPCClient(RPCClientBase):  #{
 
                 if msg_type == b'YIELD':
                     futures_get_fn = futures.get
-                    future_init_fn = _ReturnOrYieldFuture.init_as_yield
+                    future_init_fn = self._ReturnOrYieldFuture.init_as_yield
                 else: # For OK and FAIL
                     futures_get_fn = futures.pop
-                    future_init_fn = _ReturnOrYieldFuture.init_as_return
+                    future_init_fn = self._ReturnOrYieldFuture.init_as_return
 
                 future = futures_get_fn(req_id, None)
                 if future is None:
@@ -165,6 +165,11 @@ class GreenRPCClient(RPCClientBase):  #{
         self.greenlet = None
         self._ready_ev.clear()
         self._exit_ev.clear()
+    #}
+    def _get_tools(self):  #{
+        "Returns a tuple (Event, Queue, Future, TimeoutError)"
+        _, _, Event, _, Queue, _ = get_green_tools(env=self.green_env)
+        return Event, Queue, Future, TimeoutError
     #}
     def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):  #{
         """
@@ -201,7 +206,7 @@ class GreenRPCClient(RPCClientBase):  #{
         if ignore:
             return None
 
-        _, spawn_later, _, _, _ = get_green_tools(env=self.green_env)
+        _, spawn_later, _, _, _, _ = get_green_tools(env=self.green_env)
 
         if timeout and timeout > 0:
             def _abort_request():
@@ -212,71 +217,9 @@ class GreenRPCClient(RPCClientBase):  #{
                     future.set_exception(RPCTimeoutError(tout_msg))
             spawn_later(timeout, _abort_request)
 
-        future = _ReturnOrYieldFuture(self, req_id)
+        future = self._ReturnOrYieldFuture(self, req_id)
         self._futures[req_id] = future
         logger.debug('waiting for future=%r' % future)
         return future.result()  # block waiting for a reply passed by ._reader
     #}
-#}
-
-class _ReturnOrYieldFuture(object):  #{
-
-    def __init__(self, client, req_id):
-        _, _, Event, _, Queue = get_green_tools(env=client.green_env)
-        
-        self.is_initialized = Event()
-        self.return_or_except = Future()
-        self.yield_queue = Queue(1)
-        self.client = client
-        self.req_id = req_id
-
-    def init_as_return(self):
-        assert(not self.is_init())
-        self.is_yield = False
-        self.is_initialized.set()
-
-    def init_as_yield(self):
-        assert(not self.is_init())
-        self.is_yield = True
-        self.is_initialized.set()
-
-    def is_init(self):
-        return self.is_initialized.is_set()
-
-    def set_result(self, obj):
-        assert(self.is_init())
-        if self.is_yield:
-            self.yield_queue.put(obj)
-        else:
-            self.return_or_except.set_result(obj)
-
-    def set_exception(self, ex):
-        assert(self.is_init())
-        self.return_or_except.set_exception(ex)
-        if self.is_yield:
-            self.yield_queue.put(None)
-
-    def _try_except(self):
-        try:
-            self.return_or_except.result(timeout=0)
-        except TimeoutError:
-            pass
-
-    def result(self):
-        self.is_initialized.wait()
-
-        if not self.is_yield:
-            return self.return_or_except.result()
-
-        else:
-            self._try_except()
-            self.yield_queue.get()
-
-            def recv_yielder():
-                while True:
-                    obj = self.yield_queue.get()
-                    self._try_except()
-                    yield None, obj
-
-            return self.client._yielder(recv_yielder(), self.req_id)
 #}

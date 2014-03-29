@@ -44,10 +44,11 @@ To talk to this service::
 # Imports
 #-----------------------------------------------------------------------------
 
-from ..base       import RPCServiceBase, RPCClientBase
-from ..utils      import logger, RemoteMethod
-from ..errors     import RPCError, RemoteRPCError, RPCTimeoutError
-from ..serializer import *
+from ..base_client  import RPCClientBase
+from ..base_service import RPCServiceBase
+from ..utils        import logger, RemoteMethod
+from ..errors       import RPCError, RemoteRPCError, RPCTimeoutError
+from ..serializer   import *
 
 from .service import ThreadingRPCService, ThreadPool
 from .client  import ThreadingRPCClient

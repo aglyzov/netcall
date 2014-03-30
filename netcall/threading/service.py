@@ -20,16 +20,14 @@ Authors
 # Imports
 #-----------------------------------------------------------------------------
 
-import exceptions
 from random    import randint
 from Queue     import Queue, Empty
 from threading import Event
-from types     import GeneratorType
 
 import zmq
 
-from ..base  import RPCServiceBase
-from ..utils import get_zmq_classes, ThreadPool, logger
+from ..base_service import RPCServiceBase
+from ..utils        import get_zmq_classes, ThreadPool, logger
 
 
 #-----------------------------------------------------------------------------
@@ -71,8 +69,6 @@ class ThreadingRPCService(RPCServiceBase):
 
         self.io_thread  = None
         self.res_thread = None
-        
-        self.yield_send_queues = {}  # {<req_id> : <Queue>}
 
         # result drainage
         self._sync_ev  = Event()
@@ -88,6 +84,10 @@ class ThreadingRPCService(RPCServiceBase):
         super(ThreadingRPCService, self)._create_socket()
         self.socket = self.context.socket(zmq.ROUTER)
     #}
+    def _get_tools(self):  #{
+        "Returns a tuple (Queue, Empty)"
+        return Queue, Empty
+    #}
     def _send_reply(self, reply):  #{
         """ Send a multipart reply to a caller.
             Here we send the reply down the internal res_pub socket
@@ -96,99 +96,6 @@ class ThreadingRPCService(RPCServiceBase):
             Notice: reply is a list produced by self._build_reply()
         """
         self.res_queue.put(reply)
-    #}
-    def _handle_request(self, msg_list):  #{
-        """Handle an incoming request.
-
-        The request is received as a multipart message:
-
-        [<id>..<id>, b'|', req_id, proc_name, <ser_args>, <ser_kwargs>, <ignore>]
-
-        First, the service sends back a notification that the message was
-        indeed received:
-
-        [<id>..<id>, b'|', req_id, b'ACK',  service_id]
-
-        Next, the actual reply depends on if the call was successful or not:
-
-        [<id>..<id>, b'|', req_id, b'OK',   <serialized result>]
-        [<id>..<id>, b'|', req_id, b'FAIL', <JSON dict of ename, evalue, traceback>]
-
-        Here the (ename, evalue, traceback) are utf-8 encoded unicode.
-        """
-        req = self._parse_request(msg_list)
-        if req is None:
-            return
-        self._send_ack(req)
-
-        ignore = req['ignore']
-
-        try:
-            # raise any parsing errors here
-            if req['error']:
-                raise req['error']
-
-            if req['proc'] in ['YIELD_SEND', 'YIELD_THROW', 'YIELD_CLOSE']:
-                if req['req_id'] not in self.yield_send_queues:
-                    raise ValueError('req_id does not refer to a known generator')
-
-                self.yield_send_queues[req['req_id']].put((req['proc'], req['args']))
-                return
-            else:
-                # call procedure
-                res = req['proc'](*req['args'], **req['kwargs'])
-        except Exception:
-            not ignore and self._send_fail(req)
-        else:
-            if ignore:
-                return
-
-            if isinstance(res, GeneratorType):
-                self._handle_yield(req, res)
-            else:
-                self._send_ok(req, res)
-    #}
-    def _handle_yield(self, req, res):  #{
-        req_id = req['req_id']
-        logger.debug('Adding reference to yield %s', req_id)
-        input_queue = self.yield_send_queues[req_id] = Queue(1)
-
-        self._send_yield(req, None)
-        gene = res
-
-        try:
-            while True:
-                while self.running:
-                    try:
-                        proc, args = input_queue.get(True, 0.5)
-                        break
-                    except Empty:
-                        pass
-                if not self.running:
-                    # Shutdown has been called. Clean-up.
-                    gene.close()
-                    return
-                
-                if proc == 'YIELD_SEND':
-                    res = gene.send(args)
-                    self._send_yield(req, res)
-
-                elif proc == 'YIELD_THROW':
-                    ex_class = getattr(exceptions, args[0], Exception)
-                    eargs = args[:2]
-                    eargs[0] = ex_class
-                    res = gene.throw(*eargs)
-                    self._send_yield(req, res)
-
-                else:
-                    gene.close()
-                    self._send_ok(req, None)
-                    break
-        except:
-            self._send_fail(req)
-        finally:
-            logger.debug('Removing reference to yield %s', req_id)
-            del self.yield_send_queues[req_id]
     #}
     def start(self):  #{
         """ Start the RPC service (non-blocking).

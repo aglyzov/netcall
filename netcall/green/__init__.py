@@ -45,10 +45,10 @@ To talk to this service::
 # Imports
 #-----------------------------------------------------------------------------
 
-from ..base       import RPCServiceBase
-from ..utils      import RemoteMethod
-from ..errors     import RPCError, RemoteRPCError, RPCTimeoutError
-from ..serializer import *
+from ..base_service import RPCServiceBase
+from ..utils        import RemoteMethod
+from ..errors       import RPCError, RemoteRPCError, RPCTimeoutError
+from ..serializer   import *
 
 from .service import GreenRPCService
 from .client  import GreenRPCClient

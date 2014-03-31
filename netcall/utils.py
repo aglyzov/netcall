@@ -10,7 +10,7 @@ from logging import getLogger, DEBUG
 from pebble import ThreadPool
 
 
-logger = getLogger('netcall')
+logger = getLogger('netcall')  # generic netcall logger
 _gevent_cache = {}
 
 #-----------------------------------------------------------------------------

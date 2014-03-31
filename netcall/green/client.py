@@ -23,7 +23,7 @@ Authors:
 #-----------------------------------------------------------------------------
 
 from ..base_client import RPCClientBase
-from ..utils       import logger, get_zmq_classes, detect_green_env, get_green_tools
+from ..utils       import get_zmq_classes, detect_green_env, get_green_tools
 from ..errors      import RPCTimeoutError
 from ..futures     import Future, TimeoutError
 
@@ -92,6 +92,7 @@ class GreenRPCClient(RPCClientBase):  #{
             Waits for a socket to become ready (._ready_ev), then reads incoming replies and
             fills matching async results thus passing control to waiting greenlets (see .call)
         """
+        logger   = self.logger
         ready_ev = self._ready_ev
         socket   = self.socket
         futures  = self._futures
@@ -155,12 +156,12 @@ class GreenRPCClient(RPCClientBase):  #{
     #}
     def shutdown(self):  #{
         """Close the socket and signal the reader greenlet to exit"""
-        logger.debug('closing the socket')
+        self.logger.debug('closing the socket')
         self._ready = False
         self._exit_ev.set()
         self._ready_ev.set()
         self.socket.close(0)
-        logger.debug('waiting for the greenlet to exit')
+        self.logger.debug('waiting for the greenlet to exit')
         self.greenlet.join()
         self.greenlet = None
         self._ready_ev.clear()
@@ -197,6 +198,8 @@ class GreenRPCClient(RPCClientBase):  #{
 
         if not self._ready:
             raise RuntimeError('bind or connect must be called first')
+
+        logger = self.logger
 
         req_id, msg_list = self._build_request(proc_name, args, kwargs, ignore)
 

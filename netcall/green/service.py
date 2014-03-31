@@ -24,7 +24,7 @@ Authors:
 import zmq
 
 from ..base_service import RPCServiceBase
-from ..utils        import logger, get_zmq_classes, detect_green_env, get_green_tools
+from ..utils        import get_zmq_classes, detect_green_env, get_green_tools
 
 
 #-----------------------------------------------------------------------------
@@ -82,7 +82,8 @@ class GreenRPCService(RPCServiceBase):
         assert self.bound or self.connected, 'not bound/connected?'
         assert self.greenlet is None, 'already started'
 
-        spawn = get_green_tools(env=self.green_env)[0]
+        logger = self.logger
+        spawn  = get_green_tools(env=self.green_env)[0]
 
         def receive_reply():
             self.running = True
@@ -106,7 +107,7 @@ class GreenRPCService(RPCServiceBase):
             return  # nothing to do
         bound     = self.bound
         connected = self.connected
-        logger.debug('resetting the socket')
+        self.logger.debug('resetting the socket')
         self.reset()
         # wait for the greenlet to exit (closed socket)
         self.greenlet.join()

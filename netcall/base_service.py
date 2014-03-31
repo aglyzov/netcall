@@ -1,7 +1,7 @@
 # vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
 
 """
-Green version of the RPC client
+Base RPC service class
 
 Authors:
 
@@ -23,17 +23,18 @@ Authors:
 #-----------------------------------------------------------------------------
 
 import exceptions
+
+from sys       import exc_info
 from abc       import abstractmethod
+from types     import GeneratorType
+from logging   import getLogger
+from traceback import format_exc
 from functools import partial
 from itertools import chain
-from sys       import exc_info
-from traceback import format_exc
-from types     import GeneratorType
 
 from zmq.utils import jsonapi
 
 from .base import RPCBase
-from .utils      import logger
 
 
 #-----------------------------------------------------------------------------
@@ -48,6 +49,7 @@ class RPCServiceBase(RPCBase):  #{
         'connect', 'bind', 'bind_ports',
         'YIELD_SEND', 'YIELD_THROW', 'YIELD_CLOSE'
     ]
+    logger = getLogger('netcall.service')
 
     def __init__(self, *args, **kwargs):  #{
         """
@@ -90,6 +92,8 @@ class RPCServiceBase(RPCBase):  #{
             'error'  : None or <Exception>
         }
         """
+        logger = self.logger
+
         if len(msg_list) < 6 or b'|' not in msg_list:
             logger.error('bad request: %r' % msg_list)
             return None
@@ -148,7 +152,7 @@ class RPCServiceBase(RPCBase):  #{
 
             Notice: reply is a list produced by self._build_reply()
         """
-        logger.debug('sending %r' % reply)
+        self.logger.debug('sending %r' % reply)
         self.socket.send_multipart(reply)
     #}
     def _send_ack(self, request):  #{
@@ -256,8 +260,9 @@ class RPCServiceBase(RPCBase):  #{
             else:
                 self._send_ok(req, res)
     #}
-    
+
     def _handle_yield(self, req, res):  #{
+        logger = self.logger
         req_id = req['req_id']
         Queue, Empty = self._get_tools()
         logger.debug('Adding reference to yield %s', req_id)
@@ -278,7 +283,7 @@ class RPCServiceBase(RPCBase):  #{
                     # Shutdown has been called. Clean-up.
                     gene.close()
                     return
-                
+
                 if proc == 'YIELD_SEND':
                     res = gene.send(args)
                     self._send_yield(req, res)
@@ -300,7 +305,7 @@ class RPCServiceBase(RPCBase):  #{
             logger.debug('Removing reference to yield %s', req_id)
             del self.yield_send_queues[req_id]
     #}
-    
+
     @abstractmethod
     def _get_tools(self):  #{
         "Returns a tuple (Queue, Empty)"

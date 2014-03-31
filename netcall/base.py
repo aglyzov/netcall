@@ -21,8 +21,8 @@ Authors:
 # Imports
 #-----------------------------------------------------------------------------
 
-from abc       import ABCMeta, abstractmethod
-from random    import randint
+from abc    import ABCMeta, abstractmethod
+from random import randint
 
 import zmq
 
@@ -36,6 +36,8 @@ from .utils      import logger
 
 class RPCBase(object):  #{
     __metaclass__ = ABCMeta
+
+    logger = logger
 
     def __init__(self, serializer=None, identity=None):  #{
         """Base class for RPC service and proxy.
@@ -78,7 +80,7 @@ class RPCBase(object):  #{
     def shutdown(self):  #{
         """ Deallocate resources (cleanup)
         """
-        logger.debug('closing the socket')
+        self.logger.debug('closing the socket')
         self.socket.close(0)
     #}
 

@@ -1,7 +1,7 @@
 # vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
 
 """
-Green version of the RPC client
+Base RPC client class
 
 Authors:
 
@@ -22,16 +22,17 @@ Authors:
 # Imports
 #-----------------------------------------------------------------------------
 
-from abc       import abstractmethod
-from random    import randint
-from sys       import exc_info
+from abc     import abstractmethod
+from sys     import exc_info
+from random  import randint
+from logging import getLogger
 
 import zmq
 from zmq.utils import jsonapi
 
-from .base import RPCBase
-from .errors     import RemoteRPCError, RPCError
-from .utils      import logger, RemoteMethod
+from .base   import RPCBase
+from .errors import RemoteRPCError, RPCError
+from .utils  import RemoteMethod
 
 
 #-----------------------------------------------------------------------------
@@ -40,6 +41,8 @@ from .utils      import logger, RemoteMethod
 
 class RPCClientBase(RPCBase):  #{
     """A service proxy to for talking to an RPCService."""
+
+    logger = getLogger('netcall.client')
 
     def _create_socket(self):  #{
         super(RPCClientBase, self)._create_socket()
@@ -57,7 +60,7 @@ class RPCClientBase(RPCBase):  #{
         return req_id, msg_list
     #}
     def _send_request(self, request):  #{
-        logger.debug('sending %r' % request)
+        self.logger.debug('sending %r' % request)
         self.socket.send_multipart(request)
     #}
     def _parse_reply(self, msg_list):  #{
@@ -76,6 +79,8 @@ class RPCClientBase(RPCBase):  #{
             'result' : <object>
         }
         """
+        logger = self.logger
+
         if len(msg_list) < 4 or msg_list[0] != b'|':
             logger.error('bad reply: %r' % msg_list)
             return None
@@ -124,6 +129,7 @@ class RPCClientBase(RPCBase):  #{
         That is, the first element of the tuple is ignored.
         recv_generator should NOT yield the data from the very first YIELD reply.
         """
+        logger = self.logger
 
         def _send(method, args):
             _, msg_list = self._build_request(method, args, None, False, req_id=req_id)
@@ -156,7 +162,7 @@ class RPCClientBase(RPCBase):  #{
     def __getattr__(self, name):  #{
         return RemoteMethod(self, name)
     #}
-    
+
     @abstractmethod
     def _get_tools(self):  #{
         "Returns a tuple (Event, Queue, Future, TimeoutError)"
@@ -184,12 +190,12 @@ class RPCClientBase(RPCBase):  #{
         """
         pass
     #}
-    
+
     class _ReturnOrYieldFuture(object):  #{
 
         def __init__(self, client, req_id):
             Event, Queue, Future, self.TimeoutError = client._get_tools()
-            
+
             self.is_initialized = Event()
             self.return_or_except = Future()
             self.yield_queue = Queue(1)

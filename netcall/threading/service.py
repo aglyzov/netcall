@@ -27,7 +27,7 @@ from threading import Event
 import zmq
 
 from ..base_service import RPCServiceBase
-from ..utils        import get_zmq_classes, ThreadPool, logger
+from ..utils        import get_zmq_classes, ThreadPool
 
 
 #-----------------------------------------------------------------------------
@@ -108,6 +108,8 @@ class ThreadingRPCService(RPCServiceBase):
         """
         assert self.bound or self.connected, 'not bound/connected'
         assert self.io_thread is None and self.res_thread is None, 'already started'
+
+        logger = self.logger
 
         def res_thread():  #{
             """ Forwards results from res_queue to the res_pub socket
@@ -194,7 +196,7 @@ class ThreadingRPCService(RPCServiceBase):
     def stop(self):  #{
         """ Stop the RPC service (semi-blocking) """
         if self.res_thread and not self.res_thread.ready:
-            logger.debug('signaling the threads to exit')
+            self.logger.debug('signaling the threads to exit')
             self.res_queue.put(None)
             self.res_thread.wait()
             self.io_thread.wait()
@@ -205,12 +207,12 @@ class ThreadingRPCService(RPCServiceBase):
         """ Signal the threads to exit and close all sockets """
         self.stop()
 
-        logger.debug('closing the sockets')
+        self.logger.debug('closing the sockets')
         self.socket.close(0)
         self.res_pub.close(0)
 
         if not self._ext_pool:
-            logger.debug('stopping the pool')
+            self.logger.debug('stopping the pool')
             self.pool.close()
             self.pool.stop()
             self.pool.join()

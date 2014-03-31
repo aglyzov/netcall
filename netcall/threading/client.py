@@ -32,7 +32,7 @@ except ImportError:
 import zmq
 
 from ..base_client import RPCClientBase
-from ..utils       import get_zmq_classes, ThreadPool, logger
+from ..utils       import get_zmq_classes, ThreadPool
 from ..errors      import RPCTimeoutError
 
 
@@ -119,6 +119,7 @@ class ThreadingRPCClient(RPCClientBase):  #{
         """ Forwards results from req_queue to the req_pub socket
             so that an I/O thread could send them forth to a service
         """
+        logger      = self.logger
         rcv_request = self.req_queue.get
         fwd_request = self.req_pub.send_multipart
 
@@ -149,6 +150,7 @@ class ThreadingRPCClient(RPCClientBase):  #{
             Waits for a ZMQ socket to become ready (._ready_ev), then processes incoming requests/replies
             filling result futures thus passing control to waiting threads (see .call)
         """
+        logger   = self.logger
         ready_ev = self._ready_ev
         futures  = self._futures
 
@@ -291,7 +293,7 @@ class ThreadingRPCClient(RPCClientBase):  #{
                 not result.is_init() and result.init_as_return()
                 if result is not None:
                     tout_msg  = "Request %s timed out after %s sec" % (req_id, timeout)
-                    logger.debug(tout_msg)
+                    self.logger.debug(tout_msg)
                     result.set_exception(RPCTimeoutError(tout_msg))
             timer = Timer(timeout, _abort_request)
             timer.start()
@@ -312,19 +314,19 @@ class ThreadingRPCClient(RPCClientBase):  #{
         self._ready = False
         self._ready_ev.set()
 
-        logger.debug('signaling the threads to exit')
+        self.logger.debug('signaling the threads to exit')
         self.req_queue.put(None)  # signal the req and io threads to exit
         self.io_thread.wait()
         self.req_thread.wait()
 
         self._ready_ev.clear()
 
-        logger.debug('closing the sockets')
+        self.logger.debug('closing the sockets')
         self.socket.close(0)
         self.req_pub.close(0)
 
         if not self._ext_pool:
-            logger.debug('stopping the pool')
+            self.logger.debug('stopping the pool')
             self.pool.close()
             self.pool.stop()
             self.pool.join()

@@ -6,7 +6,7 @@ import zmq
 
 from ..base_client import RPCClientBase
 from ..errors      import RPCTimeoutError
-from ..utils       import logger, get_zmq_classes
+from ..utils       import get_zmq_classes
 
 
 #-----------------------------------------------------------------------------
@@ -94,7 +94,7 @@ class SyncRPCClient(RPCClientBase):  #{
         def recv_yielder():  #{
             while True:
                 msg_list = recv_multipart()
-                logger.debug('received %r' % msg_list)
+                self.logger.debug('received %r' % msg_list)
                 reply = self._parse_reply(msg_list)
 
                 if reply is None \

@@ -221,14 +221,14 @@ class ThreadingRPCClient(RPCClientBase):  #{
                 if msg_type == b'ACK':
                     #logger.debug('skipping ACK, req_id=%r' % req_id)
                     continue
-                
+
                 if msg_type == b'YIELD':
                     futures_get_fn = futures.get
                     future_init_fn = self._ReturnOrYieldFuture.init_as_yield
                 else: # For OK and FAIL
                     futures_get_fn = futures.pop
                     future_init_fn = self._ReturnOrYieldFuture.init_as_return
-                
+
                 future = futures_get_fn(req_id, None)
                 if future is None:
                     # result is gone, must be a timeout

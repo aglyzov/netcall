@@ -65,6 +65,7 @@ class RPCServiceBase(RPCBase):  #{
 
         super(RPCServiceBase, self).__init__(*args, **kwargs)
 
+        self._tools = self._get_tools()
         self.service_id = service_id \
                        or b'%s/%s' % (self.__class__.__name__, self.identity)
         self.procedures = {}  # {<name> : <callable>}
@@ -264,7 +265,7 @@ class RPCServiceBase(RPCBase):  #{
     def _handle_yield(self, req, res):  #{
         logger = self.logger
         req_id = req['req_id']
-        Queue, Empty = self._get_tools()
+        Queue, Empty = self._tools
         logger.debug('Adding reference to yield %s', req_id)
         input_queue = self.yield_send_queues[req_id] = Queue(1)
 

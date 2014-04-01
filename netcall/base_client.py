@@ -43,6 +43,10 @@ class RPCClientBase(RPCBase):  #{
     """A service proxy to for talking to an RPCService."""
 
     logger = getLogger('netcall.client')
+    
+    def __init__(self, **kwargs):
+        super(RPCClientBase, self).__init__(**kwargs)
+        self._tools = self._get_tools()
 
     def _create_socket(self):  #{
         super(RPCClientBase, self)._create_socket()
@@ -194,7 +198,7 @@ class RPCClientBase(RPCBase):  #{
     class _ReturnOrYieldFuture(object):  #{
 
         def __init__(self, client, req_id):
-            Event, Queue, Future, self.TimeoutError = client._get_tools()
+            Event, Queue, Future, self.TimeoutError = client._tools
 
             self.is_initialized = Event()
             self.return_or_except = Future()

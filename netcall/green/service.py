@@ -58,6 +58,8 @@ class GreenRPCService(RPCServiceBase):
         else:
             assert isinstance(context, Context)
             self.context = context
+            
+        self._green_tools = get_green_tools(env=self.green_env)
 
         super(GreenRPCService, self).__init__(**kwargs)
 
@@ -70,8 +72,7 @@ class GreenRPCService(RPCServiceBase):
     #}
     def _get_tools(self):  #{
         "Returns a tuple (Queue, Empty)"
-        _, _, _, _, Queue, Empty = get_green_tools(env=self.green_env)
-        return Queue, Empty
+        return self._green_tools[-2:]
     #}
     def start(self):  #{
         """ Start the RPC service (non-blocking).
@@ -83,7 +84,7 @@ class GreenRPCService(RPCServiceBase):
         assert self.greenlet is None, 'already started'
 
         logger = self.logger
-        spawn  = get_green_tools(env=self.green_env)[0]
+        spawn  = self._green_tools[0]
 
         def receive_reply():
             self.running = True

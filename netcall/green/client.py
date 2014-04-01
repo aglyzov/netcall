@@ -58,10 +58,11 @@ class GreenRPCClient(RPCClientBase):  #{
         else:
             assert isinstance(context, Context)
             self.context = context
+            
+        self._green_tools = get_green_tools(env=self.green_env)
+        spawn, _, Event = self._green_tools[:3]
 
         super(GreenRPCClient, self).__init__(**kwargs)  # base class
-
-        spawn, _, Event, _, _, _ = get_green_tools(env=self.green_env)
 
         self._ready_ev = Event()
         self._exit_ev  = Event()
@@ -169,7 +170,7 @@ class GreenRPCClient(RPCClientBase):  #{
     #}
     def _get_tools(self):  #{
         "Returns a tuple (Event, Queue, Future, TimeoutError)"
-        _, _, Event, _, Queue, _ = get_green_tools(env=self.green_env)
+        Event, _, Queue = self._green_tools[2:5]
         return Event, Queue, Future, TimeoutError
     #}
     def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):  #{
@@ -209,7 +210,7 @@ class GreenRPCClient(RPCClientBase):  #{
         if ignore:
             return None
 
-        _, spawn_later, _, _, _, _ = get_green_tools(env=self.green_env)
+        spawn_later = self._green_tools[1]
 
         if timeout and timeout > 0:
             def _abort_request():

@@ -1,15 +1,17 @@
 # vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
 
-from logging import WARNING, ERROR
 from unittest import TestCase
 
 from shutil   import rmtree
 from tempfile import mkdtemp
 
-from netcall.utils import setup_logger
+from netcall.utils import logger, setup_logger
 
-logger = setup_logger(level=WARNING)
-#logger = setup_logger()
+from sys import argv
+if 'py.test' in argv[0]:
+    setup_logger(logger, level='DEBUG')
+else:
+    setup_logger(logger, level='WARNING')
 setup_logger('greenhouse')
 
 

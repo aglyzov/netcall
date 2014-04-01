@@ -5,7 +5,7 @@ from __future__ import absolute_import
 from sys     import stderr, modules
 from imp     import new_module
 from runpy   import _get_module_details
-from logging import getLogger, DEBUG
+from logging import getLogger
 
 from pebble import ThreadPool
 
@@ -17,17 +17,24 @@ _gevent_cache = {}
 # Utilies
 #-----------------------------------------------------------------------------
 
-def setup_logger(logger='netcall', level=DEBUG, stream=stderr):  #{
-    """ A utility function to setup a basic logging handler
-        for a given logger (netcall by default)
+def setup_logger(logger=None, level='DEBUG', format=None, stream=stderr):  #{
+    """ A utility function to setup a basic logging handler for a given logger
     """
-    from logging import StreamHandler, Formatter
+    from logging import StreamHandler, Formatter, getLogger, getLevelName
+
+    assert logger is not None, 'logger is required (either <str> or <Logger>)'
 
     if isinstance(logger, basestring):
         logger = getLogger(logger)
 
+    if isinstance(level, basestring):
+        level  = getLevelName(level)
+
+    if format is None:
+        format = "%(relativeCreated).1fms:%(process)s/%(threadName)s:%(levelname)s:%(name)s:%(funcName)s():%(message)s"
+
     handler   = StreamHandler(stream)
-    formatter = Formatter("[%(process)s/%(threadName)s]:%(levelname)s:%(name)s:%(funcName)s():%(message)s")
+    formatter = Formatter(format)
     handler.setLevel(level)
     handler.setFormatter(formatter)
     logger.setLevel(level)

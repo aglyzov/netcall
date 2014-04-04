@@ -193,7 +193,7 @@ class RPCServiceBase(RPCBase):  #{
 
         The request is received as a multipart message:
 
-        [<id>..<id>, b'|', req_id, proc_name, <serialized args & kwargs>]
+        [<id>..<id>, b'|', req_id, proc_name, <serialized (args, kwargs)>]
 
         First, the service sends back a notification that the message was
         indeed received:
@@ -214,9 +214,9 @@ class RPCServiceBase(RPCBase):  #{
         yield-generator. The first message sent by the client to a yield-generator
         must be a YIELD_SEND with None as argument.
 
-        [<id>..<id>, b'|', req_id, 'YIELD_SEND',  <serialized sent value>]
-        [<id>..<id>, b'|', req_id, 'YIELD_THROW', <serialized ename, evalue>]
-        [<id>..<id>, b'|', req_id, 'YIELD_CLOSE', <no args & kwargs>]
+        [<id>..<id>, b'|', req_id, 'YIELD_SEND',  <serialized (sent value, None)>]
+        [<id>..<id>, b'|', req_id, 'YIELD_THROW', <serialized ([ename, evalue], None)>]
+        [<id>..<id>, b'|', req_id, 'YIELD_CLOSE', <serialized (None, None)>]
 
         The service will first send an ACK message. Then, it will send a YIELD
         reply whenever ready, or a FAIL reply in case an exception is raised.
@@ -227,7 +227,7 @@ class RPCServiceBase(RPCBase):  #{
         of the yield-generator. Any other exception raised will also terminate
         the yield-generator.
 
-        Note: subclasses have to override this method
+        Note: subclasses can override this method if necessary.
         """
         req = self._parse_request(msg_list)
         if req is None:

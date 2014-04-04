@@ -39,7 +39,7 @@ class SyncRPCClient(RPCClientBase):  #{
     #}
     
     def _get_tools(self):  #{
-        "Returns a tuple (Event, Queue, Future, TimeoutError)"
+        "Returns a tuple (Event, Queue, Future, TimeoutError, Condition)"
         pass # Not needed in this implementation
     #}
     

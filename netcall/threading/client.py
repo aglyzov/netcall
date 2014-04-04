@@ -22,7 +22,7 @@ Authors
 
 from Queue     import Queue
 from random    import randint
-from threading import Event, Timer
+from threading import Event, Timer, Condition
 
 try:
     from concurrent.futures import Future, TimeoutError
@@ -250,8 +250,8 @@ class ThreadingRPCClient(RPCClientBase):  #{
         logger.debug('io_thread exited')
     #}
     def _get_tools(self):  #{
-        "Returns a tuple (Event, Queue, Future, TimeoutError)"
-        return Event, Queue, Future, TimeoutError
+        "Returns a tuple (Event, Queue, Future, TimeoutError, Condition)"
+        return Event, Queue, Future, TimeoutError, Condition
     #}
     def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):  #{
         """

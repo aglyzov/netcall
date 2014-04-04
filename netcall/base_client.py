@@ -198,10 +198,13 @@ class RPCClientBase(RPCBase):  #{
     class _ReturnOrYieldFuture(object):  #{
 
         def __init__(self, client, req_id):
-            Event, Queue, Future, self.TimeoutError = client._tools
+            Event, Queue, Future, self.TimeoutError, Condition = client._tools
 
             self.is_initialized = Event()
-            self.return_or_except = Future()
+            try:
+                self.return_or_except = Future(condition=Condition())
+            except TypeError:
+                self.return_or_except = Future()
             self.yield_queue = Queue(1)
             self.client = client
             self.req_id = req_id

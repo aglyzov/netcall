@@ -169,9 +169,9 @@ class GreenRPCClient(RPCClientBase):  #{
         self._exit_ev.clear()
     #}
     def _get_tools(self):  #{
-        "Returns a tuple (Event, Queue, Future, TimeoutError)"
-        Event, _, Queue = self._green_tools[2:5]
-        return Event, Queue, Future, TimeoutError
+        "Returns a tuple (Event, Queue, Future, TimeoutError, Condition)"
+        Event, Condition, Queue = self._green_tools[2:5]
+        return Event, Queue, Future, TimeoutError, Condition
     #}
     def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):  #{
         """

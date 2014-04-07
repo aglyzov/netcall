@@ -229,6 +229,7 @@ class RPCServiceBase(RPCBase):  #{
 
         Note: subclasses can override this method if necessary.
         """
+        self.logger.debug('received %r' % msg_list)
         req = self._parse_request(msg_list)
         if req is None:
             return

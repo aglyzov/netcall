@@ -83,6 +83,7 @@ class ThreadingRPCService(RPCServiceBase):
     def _create_socket(self):  #{
         super(ThreadingRPCService, self)._create_socket()
         self.socket = self.context.socket(zmq.ROUTER)
+        self.socket.identity = self.identity
     #}
     def _get_tools(self):  #{
         "Returns a tuple (Queue, Empty)"

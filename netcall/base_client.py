@@ -52,7 +52,7 @@ class RPCClientBase(RPCBase):  #{
         super(RPCClientBase, self)._create_socket()
 
         self.socket = self.context.socket(zmq.DEALER)
-        self.socket.setsockopt(zmq.IDENTITY, self.identity)
+        self.socket.identity = self.identity
     #}
     def _build_request(self, method, args, kwargs, ignore=False, req_id=None):  #{
         req_id = req_id or b'%x' % randint(0, 0xFFFFFFFF)

@@ -70,7 +70,7 @@ def gevent_patched_module(name, items=None, cache=_gevent_cache):  #{
 
     gevent_module = getattr(__import__('gevent.' + name), name)
     module_name = getattr(gevent_module, '__target__', name)
-    module = import_module(module_name, cache=_gevent_cache)
+    module = import_module(module_name, cache=cache)
     if items is None:
         items = getattr(gevent_module, '__implements__', None)
         if items is None:
@@ -80,22 +80,12 @@ def gevent_patched_module(name, items=None, cache=_gevent_cache):  #{
 
     return module
 #}
-def gevent_patched_threading(threading=True, _threading_local=True, Event=True):  #{
-    """ Replace the standard :mod:`thread` module to make it greenlet-based.
-        If *threading* is true (the default), also patch ``threading``.
-        If *_threading_local* is true (the default), also patch ``_threading_local.local``.
+def gevent_patched_threading():  #{
+    """ Returns a gevent monkey-patched `threading` module
     """
-    #thread = gevent_patched_module('thread')
-
-    if threading:
-        threading = gevent_patched_module('threading')
-        if Event:
-            from gevent.event import Event
-            threading.Event = Event
-    if _threading_local:
-        _threading_local = __import__('_threading_local')
-        from gevent.local import local
-        _threading_local.local = local
+    threading = gevent_patched_module('threading')
+    from gevent.event import Event
+    threading.Event = Event
 
     return threading
 #}

@@ -47,7 +47,7 @@ class RPCServiceBase(RPCBase):  #{
         'register', 'register_object', 'proc', 'task',
         'start', 'stop', 'serve', 'shutdown', 'reset',
         'connect', 'bind', 'bind_ports',
-        'YIELD_SEND', 'YIELD_THROW', 'YIELD_CLOSE'
+        '_SEND', '_THROW', '_CLOSE'
     ]
     logger = getLogger('netcall.service')
 
@@ -105,7 +105,7 @@ class RPCServiceBase(RPCBase):  #{
         boundary = msg_list.index(b'|')
         name     = msg_list[boundary+2]
 
-        if name in ['YIELD_SEND', 'YIELD_THROW', 'YIELD_CLOSE']:
+        if name in ['_SEND', '_THROW', '_CLOSE']:
             proc = name
         else:
             proc = self.procedures.get(name, None)
@@ -207,21 +207,21 @@ class RPCServiceBase(RPCBase):  #{
 
         Here the (ename, evalue, traceback) are utf-8 encoded unicode.
 
-        In case of a YIELD reply, the client can send a YIELD_SEND, YIELD_THROW or
-        YIELD_CLOSE messages with the same req_id as in the first message sent.
+        In case of a YIELD reply, the client can send a _SEND, _THROW or
+        _CLOSE messages with the same req_id as in the first message sent.
         The first YIELD reply will contain no result to signal the client it is a
         yield-generator. The first message sent by the client to a yield-generator
-        must be a YIELD_SEND with None as argument.
+        must be a _SEND with None as argument.
 
-        [<id>..<id>, b'|', req_id, 'YIELD_SEND',  <serialized (sent value, None)>]
-        [<id>..<id>, b'|', req_id, 'YIELD_THROW', <serialized ([ename, evalue], None)>]
-        [<id>..<id>, b'|', req_id, 'YIELD_CLOSE', <serialized (None, None)>]
+        [<id>..<id>, b'|', req_id, '_SEND',  <serialized (sent value, None)>]
+        [<id>..<id>, b'|', req_id, '_THROW', <serialized ([ename, evalue], None)>]
+        [<id>..<id>, b'|', req_id, '_CLOSE', <serialized (None, None)>]
 
         The service will first send an ACK message. Then, it will send a YIELD
         reply whenever ready, or a FAIL reply in case an exception is raised.
 
         Termination of the yield-generator happens by throwing an exception.
-        Normal termination raises a StopIterator. Termination by YIELD_CLOSE can
+        Normal termination raises a StopIterator. Termination by _CLOSE can
         raises a GeneratorExit or a StopIteration depending on the implementation
         of the yield-generator. Any other exception raised will also terminate
         the yield-generator.
@@ -240,7 +240,7 @@ class RPCServiceBase(RPCBase):  #{
             if req['error']:
                 raise req['error']
 
-            if req['proc'] in ['YIELD_SEND', 'YIELD_THROW', 'YIELD_CLOSE']:
+            if req['proc'] in ['_SEND', '_THROW', '_CLOSE']:
                 if req['req_id'] not in self.yield_send_queues:
                     raise ValueError('req_id does not refer to a known generator')
 
@@ -285,11 +285,11 @@ class RPCServiceBase(RPCBase):  #{
                 #    gene.close()
                 #    return
 
-                if proc == 'YIELD_SEND':
+                if proc == '_SEND':
                     res = gene.send(args)
                     self._send_yield(req, res)
 
-                elif proc == 'YIELD_THROW':
+                elif proc == '_THROW':
                     ex_class = getattr(exceptions, args[0], Exception)
                     eargs = args[:2]
                     eargs[0] = ex_class

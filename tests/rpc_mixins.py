@@ -2,17 +2,10 @@
 
 from types import GeneratorType
 
-from netcall import RemoteRPCError, RPCTimeoutError
+from netcall import RemoteRPCError, RPCTimeoutError, RPCServiceBase
 
 
 class RPCCallsMixIn(object):
-
-    reserved_fields = [
-        'register', 'register_object', 'proc', 'task',
-        'start', 'stop', 'serve', 'shutdown', 'reset',
-        'connect', 'bind', 'bind_ports',
-        'YIELD_SEND', 'YIELD_THROW', 'YIELD_CLOSE' # Keep these three at the end
-    ]
 
     def setUp(self):
         super(RPCCallsMixIn, self).setUp()
@@ -35,20 +28,25 @@ class RPCCallsMixIn(object):
 
 
     def test_netcall_reserved(self):
-        for f in self.reserved_fields[:-3]: # Avoid asking for the YIELD functions, they raise another exception
-            self.assertNotImplementedRemotely(f)
+        # Avoid asking for the special _* GEN names, they raise another exception
+        reserved = [n for n in RPCServiceBase._RESERVED if not n.startswith('_')]
+        for name in reserved:
+            self.assertNotImplementedRemotely(name)
 
     def test_cannot_register_netcall_reserved(self):
         def dummy():
             pass
 
-        for f in self.reserved_fields:
-            with self.assertRaisesRegexp(ValueError, '{} is a reserved function name'.format(f)):
-                self.service.register(dummy, name=f)
+        for name in RPCServiceBase._RESERVED:
+            with self.assertRaisesRegexp(ValueError, '%s is a reserved function name' % name):
+                self.service.register(dummy, name=name)
 
         self.assertDictEqual(self.service.procedures, {})
-        for f in self.reserved_fields[:-3]: # Avoid asking for the YIELD functions, they raise another exception
-            self.assertNotImplementedRemotely(f)
+
+        # Avoid asking for the special _* GEN names, they raise another exception
+        reserved = [n for n in RPCServiceBase._RESERVED if not n.startswith('_')]
+        for name in reserved:
+            self.assertNotImplementedRemotely(name)
 
     def test_cannot_register_object_netcall_reserved(self):
         def dummy():
@@ -58,13 +56,16 @@ class RPCCallsMixIn(object):
             pass
 
         toy = Dummy()
-        for f in self.reserved_fields:
-            setattr(toy, f, dummy)
+        for name in RPCServiceBase._RESERVED:
+            setattr(toy, name, dummy)
         self.service.register_object(toy)
 
         self.assertDictEqual(self.service.procedures, {})
-        for f in self.reserved_fields[:-3]: # Avoid asking for the YIELD functions, they raise another exception
-            self.assertNotImplementedRemotely(f)
+
+        # Avoid asking for the special _* GEN names, they raise another exception
+        reserved = [n for n in RPCServiceBase._RESERVED if not n.startswith('_')]
+        for name in reserved:
+            self.assertNotImplementedRemotely(name)
 
 
     def test_function(self):

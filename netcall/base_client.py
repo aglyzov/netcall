@@ -137,7 +137,7 @@ class RPCClientBase(RPCBase):
             self._send_request(msg_list)
 
         try:
-            _send('YIELD_SEND', None)
+            _send('_SEND', None)
             while True:
                 _, obj = next(recv_generator)
                 try:
@@ -145,14 +145,14 @@ class RPCClientBase(RPCBase):
                 except Exception, e:
                     logger.debug('generator.throw()')
                     etype, evalue, _ = exc_info()
-                    _send('YIELD_THROW', [str(etype.__name__), str(evalue)])
+                    _send('_THROW', [str(etype.__name__), str(evalue)])
                 else:
-                    _send('YIELD_SEND', to_send)
+                    _send('_SEND', to_send)
         except StopIteration:
             return
         except GeneratorExit, e:
             logger.debug('generator.close()')
-            _send('YIELD_CLOSE', None)
+            _send('_CLOSE', None)
             next(recv_generator)
             raise e
         finally:

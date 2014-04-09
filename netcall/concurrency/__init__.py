@@ -4,16 +4,20 @@ from functools   import wraps
 
 from ..utils  import detect_green_env, gevent_patched_threading
 
-from .futures import Future
+from .futures import Future as _Future, TimeoutError
 
 
 ConcurrencyTools = namedtuple(
-    'ConcurrencyTools', 'sleep Event Condition RLock Queue Empty Future Executor'
+    'ConcurrencyTools',
+    'sleep Thread Timer Event Condition Lock RLock Queue Empty Future Executor'
 )
 
 def get_tools(env=None):
-    """ Returns a ConcurrencyTools named tuple:
-          (sleep, Event, Condition, RLock, Queue, Empty, Future, Executor)
+    """ Returns a <ConcurrencyTools> named tuple:
+
+        (sleep, Thread, Timer, Event, Condition, Lock, RLock,
+         Queue, Empty, Future, Executor)
+
         compatible with current environment.
 
         If env is undefined, tries to detect a monkey-patched green
@@ -22,76 +26,52 @@ def get_tools(env=None):
     env = env or detect_green_env()
 
     if env == 'gevent':
-        from gevent       import sleep
-        from gevent.queue import Queue, Empty
-        from .gevent      import GeventExecutor
-
+        import gevent       as time
+        import gevent.queue as Queue
+        from .gevent import GeventExecutor as Executor
         threading = gevent_patched_threading()
 
-        tools = ConcurrencyTools(
-            sleep,
-            threading.Event,
-            threading.Condition,
-            threading.RLock,
-            Queue,
-            Empty,
-            wraps(Future)(lambda: Future(condition=threading.Condition())),
-            GeventExecutor
-        )
+        Future = wraps(_Future)(lambda: _Future(condition=threading.Condition()))
 
     elif env == 'eventlet':
-        from eventlet.green.threading import Event, Condition, RLock
-        from eventlet.queue           import Queue, Empty
-        from eventlet                 import sleep
-        from .eventlet                import EventletExecutor
+        import eventlet       as time
+        import eventlet.queue as Queue
+        from eventlet.green import threading
+        from .eventlet      import EventletExecutor as Executor
 
-        tools = ConcurrencyTools(
-            sleep,
-            Event,
-            Condition,
-            RLock,
-            Queue,
-            Empty,
-            wraps(Future)(lambda: Future(condition=Condition())),
-            EventletExecutor
-        )
+        Future = wraps(_Future)(lambda: _Future(condition=threading.Condition()))
 
     elif env == 'greenhouse':
-        from greenhouse  import sleep, Event, Condition, RLock, Queue, Empty
-        from .greenhouse import GreenhouseExecutor
+        import greenhouse
+        time      = greenhouse
+        threading = greenhouse
+        Queue     = greenhouse
+        #from .greenhouse import GreenhouseExecutor as Executor # TODO
 
-        tools = ConcurrencyTools(
-            sleep,
-            Event,
-            Condition,
-            RLock,
-            Queue,
-            Empty,
-            wraps(Future)(lambda: Future(condition=Condition())),
-            GreenhouseExecutor
-        )
+        Future   = wraps(_Future)(lambda: _Future(condition=threading.Condition()))
+        Executor = NotImplementedError  # TODO
 
     elif env is None:
-        from time      import sleep
-        from threading import Event, Condition, RLock
-        from Queue     import Queue, Empty
-        from .pebble   import ThreadPoolExecutor
+        import time, threading, Queue
+        from .pebble import ThreadPoolExecutor as Executor
 
-        tools = ConcurrencyTools(
-            sleep,
-            Event,
-            Condition,
-            RLock,
-            Queue,
-            Empty,
-            Future,
-            ThreadPoolExecutor
-        )
-
+        Future = _Future
     else:
         raise ValueError('unsupported environment %r' % env)
 
-    return tools
+    return ConcurrencyTools(
+        time.sleep,
+        threading.Thread,
+        threading.Timer,
+        threading.Event,
+        threading.Condition,
+        threading.Lock,
+        threading.RLock,
+        Queue.Queue,
+        Queue.Empty,
+        Future,
+        Executor
+    )
 
 
 # vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0

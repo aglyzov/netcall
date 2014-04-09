@@ -3,11 +3,11 @@ from __future__ import absolute_import
 from gevent      import Greenlet, Timeout, GreenletExit
 from gevent.pool import Group, Pool
 
-from .base    import Executor
+from .base    import FutureBase, ExecutorBase
 from .futures import TimeoutError
 
 
-class GreenletFuture(Greenlet):
+class GreenletFuture(Greenlet, FutureBase):
     """ A Gevent Greenlet providing the Future interface
     """
     def result(self, timeout=None):
@@ -41,7 +41,7 @@ class GreenletFuture(Greenlet):
     def add_done_callback(self, func):
         return self.link(func)
 
-class GeventExecutor(Executor):
+class GeventExecutor(ExecutorBase):
     """ An Executor using Gevent Group/Pool
     """
     def __init__(self, limit=None):

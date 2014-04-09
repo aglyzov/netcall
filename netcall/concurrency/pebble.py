@@ -1,13 +1,12 @@
 from __future__  import absolute_import
-#from weakref     import WeakSet
 
 from pebble import Task, ThreadPool, TimeoutError as PebbleTimeout
 
-from .base    import Executor
+from .base    import FutureBase, ExecutorBase
 from .futures import TimeoutError
 
 
-class TaskFutureAdapter(object):
+class TaskFutureAdapter(FutureBase):
     """ A Pebble Task adapter providing the Future interface
     """
     def __init__(self, task):
@@ -43,7 +42,7 @@ class TaskFutureAdapter(object):
         else:
             raise NotImplemented("pebble.Task does not support callback notification")
 
-class ThreadPoolExecutor(Executor):
+class ThreadPoolExecutor(ExecutorBase):
     """ An Executor using Pebble ThreadPool
     """
     def __init__(self, limit=None):

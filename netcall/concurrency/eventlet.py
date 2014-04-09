@@ -5,11 +5,11 @@ from eventlet.greenpool   import GreenPool
 from eventlet.timeout     import Timeout, with_timeout
 from eventlet.api         import GreenletExit
 
-from .base    import Executor
+from .base    import FutureBase, ExecutorBase
 from .futures import TimeoutError
 
 
-class GreenThreadFutureAdapter(object):
+class GreenThreadFutureAdapter(FutureBase):
     """ An Eventlet GreenThread adapter providing the Future interface
     """
     def __init__(self, greenthread):
@@ -52,7 +52,7 @@ class GreenThreadFutureAdapter(object):
     def add_done_callback(self, func):
         return self._greenthread.link(lambda gr: func(self))
 
-class EventletExecutor(Executor):
+class EventletExecutor(ExecutorBase):
     """ An Executor using Eventlet GreenPool
     """
     def __init__(self, limit=None):

@@ -12,7 +12,7 @@ ConcurrencyTools = namedtuple(
     'sleep Thread Timer Event Condition Lock RLock Queue Empty Future Executor'
 )
 
-def get_tools(env=None):
+def get_tools(env='auto'):
     """ Returns a <ConcurrencyTools> named tuple:
 
         (sleep, Thread, Timer, Event, Condition, Lock, RLock,
@@ -20,10 +20,12 @@ def get_tools(env=None):
 
         compatible with current environment.
 
-        If env is undefined, tries to detect a monkey-patched green
-        environment with detect_green_env().
+        If env is 'auto' (default), tries to detect a monkey-patched green
+        thread environment with detect_green_env(). Gevent, Eventlet and
+        Greenhouse are supported as well as the regular Python Threading API.
     """
-    env = env or detect_green_env()
+    if env == 'auto':
+        env = detect_green_env()
 
     if env == 'gevent':
         import gevent       as time
@@ -51,11 +53,12 @@ def get_tools(env=None):
         Future   = wraps(_Future)(lambda: _Future(condition=threading.Condition()))
         Executor = NotImplementedError  # TODO
 
-    elif env is None:
+    elif env in [None, 'threading']:
         import time, threading, Queue
         from .pebble import ThreadPoolExecutor as Executor
 
         Future = _Future
+
     else:
         raise ValueError('unsupported environment %r' % env)
 

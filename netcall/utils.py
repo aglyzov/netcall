@@ -138,17 +138,16 @@ def green_device(inp, out, env=None):  #{
     o2i.join()
 #}
 
-def get_zmq_classes(env=None):  #{
+def get_zmq_classes(env='auto'):  #{
     """ Returns ZMQ Context and Poller classes that are
         compatible with the current environment.
 
-        Tries to detect a monkey-patched green thread environment
-        and choses an appropriate Context class.
-
-        Gevent, Eventlet and Greenhouse are supported as well as the
-        regular PyZMQ Context class.
+        If env is 'auto' (default), tries to detect a monkey-patched
+        green thread environment. Gevent, Eventlet and Greenhouse are
+        supported as well as the regular PyZMQ Context class.
     """
-    env = env or detect_green_env()
+    if env == 'auto':
+        env = detect_green_env()
 
     if env == 'gevent':
         from zmq.green import Context, Poller
@@ -164,8 +163,11 @@ def get_zmq_classes(env=None):  #{
             def __init__(self, *args, **kwargs):
                 raise NotImplementedError('eventlet does not support ZeroMQ Poller')
 
-    else:
+    elif env in [None, 'threading']:
         from zmq import Context, Poller
+
+    else:
+        raise ValueError('unsupported environment %r' % env)
 
     return Context, Poller
 #}

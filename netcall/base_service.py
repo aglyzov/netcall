@@ -65,7 +65,6 @@ class RPCServiceBase(RPCBase):  #{
 
         super(RPCServiceBase, self).__init__(*args, **kwargs)
 
-        self._tools = self._get_tools()
         self.service_id = service_id \
                        or b'%s/%s' % (self.__class__.__name__, self.identity)
         self.procedures = {}  # {<name> : <callable>}
@@ -265,7 +264,7 @@ class RPCServiceBase(RPCBase):  #{
     def _handle_yield(self, req, res):  #{
         logger = self.logger
         req_id = req['req_id']
-        Queue, Empty = self._tools
+        Queue, Empty = self._tools.Queue, self._tools.Empty
         logger.debug('Adding reference to yield %s', req_id)
         input_queue = self.yield_send_queues[req_id] = Queue(1)
 
@@ -274,16 +273,17 @@ class RPCServiceBase(RPCBase):  #{
 
         try:
             while True:
-                while self.running:
+                while True:  # TODO: running
                     try:
                         proc, args = input_queue.get(True, 0.5)
                         break
                     except Empty:
                         pass
-                if not self.running:
-                    # Shutdown has been called. Clean-up.
-                    gene.close()
-                    return
+
+                #if not self.running:  TODO: running
+                #    # Shutdown has been called. Clean-up.
+                #    gene.close()
+                #    return
 
                 if proc == 'YIELD_SEND':
                     res = gene.send(args)
@@ -305,12 +305,6 @@ class RPCServiceBase(RPCBase):  #{
         finally:
             logger.debug('Removing reference to yield %s', req_id)
             del self.yield_send_queues[req_id]
-    #}
-
-    @abstractmethod
-    def _get_tools(self):  #{
-        "Returns a tuple (Queue, Empty)"
-        pass
     #}
 
     #-------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
+# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0
 
 """
 Base RPC client class
@@ -33,28 +33,25 @@ from zmq.utils import jsonapi
 from .base   import RPCBase
 from .errors import RemoteRPCError, RPCError
 from .utils  import RemoteMethod
+from .concurrency.futures import TimeoutError
 
 
 #-----------------------------------------------------------------------------
 # RPC Client base
 #-----------------------------------------------------------------------------
 
-class RPCClientBase(RPCBase):  #{
-    """A service proxy to for talking to an RPCService."""
+class RPCClientBase(RPCBase):
+    """An RPC Client (base class)"""
 
     logger = getLogger('netcall.client')
-    
-    def __init__(self, **kwargs):
-        super(RPCClientBase, self).__init__(**kwargs)
-        self._tools = self._get_tools()
 
-    def _create_socket(self):  #{
+    def _create_socket(self):
         super(RPCClientBase, self)._create_socket()
 
         self.socket = self.context.socket(zmq.DEALER)
         self.socket.setsockopt(zmq.IDENTITY, self.identity)
-    #}
-    def _build_request(self, method, args, kwargs, ignore=False, req_id=None):  #{
+
+    def _build_request(self, method, args, kwargs, ignore=False, req_id=None):
         req_id = req_id or b'%x' % randint(0, 0xFFFFFFFF)
         method = bytes(method)
         msg_list = [b'|', req_id, method]
@@ -62,12 +59,12 @@ class RPCClientBase(RPCBase):  #{
         msg_list.extend(data_list)
         msg_list.append(bytes(int(ignore)))
         return req_id, msg_list
-    #}
-    def _send_request(self, request):  #{
+
+    def _send_request(self, request):
         self.logger.debug('sending %r' % request)
         self.socket.send_multipart(request)
-    #}
-    def _parse_reply(self, msg_list):  #{
+
+    def _parse_reply(self, msg_list):
         """
         Parse a reply from service
         (should not raise an exception)
@@ -123,9 +120,8 @@ class RPCClientBase(RPCBase):  #{
             srv_id = srv_id,
             result = result,
         )
-    #}
 
-    def _yielder(self, recv_generator, req_id):  #{
+    def _yielder(self, recv_generator, req_id):
         """Implements the yield-generator workflow.
         This function is made to be reused by synchronous subclasses.
         For asynchronous subclasses, use _ReturnOrYieldFuture class.
@@ -161,20 +157,12 @@ class RPCClientBase(RPCBase):  #{
             raise e
         finally:
             logger.debug('_yielder exits (req_id=%s)', req_id)
-    #}
 
-    def __getattr__(self, name):  #{
+    def __getattr__(self, name):
         return RemoteMethod(self, name)
-    #}
 
     @abstractmethod
-    def _get_tools(self):  #{
-        "Returns a tuple (Event, Queue, Future, TimeoutError)"
-        pass
-    #}
-
-    @abstractmethod
-    def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):  #{
+    def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):
         """
         Call the remote method with *args and **kwargs
         (may raise exception)
@@ -193,21 +181,17 @@ class RPCClientBase(RPCBase):  #{
             If the call fails, `RemoteRPCError` will be raised.
         """
         pass
-    #}
 
-    class _ReturnOrYieldFuture(object):  #{
+    class _ReturnOrYieldFuture(object):
 
         def __init__(self, client, req_id):
-            Event, Queue, Future, self.TimeoutError, Condition = client._tools
+            tools = client._tools
 
-            self.is_initialized = Event()
-            try:
-                self.return_or_except = Future(condition=Condition())
-            except TypeError:
-                self.return_or_except = Future()
-            self.yield_queue = Queue(1)
-            self.client = client
-            self.req_id = req_id
+            self.is_initialized   = tools.Event()
+            self.return_or_except = tools.Future()
+            self.yield_queue      = tools.Queue(1)
+            self.client           = client
+            self.req_id           = req_id
 
         def init_as_return(self):
             assert(not self.is_init())
@@ -238,7 +222,7 @@ class RPCClientBase(RPCBase):  #{
         def _try_except(self):
             try:
                 self.return_or_except.result(timeout=0)
-            except self.TimeoutError:
+            except TimeoutError:
                 pass
 
         def result(self):
@@ -258,5 +242,4 @@ class RPCClientBase(RPCBase):  #{
                         yield None, obj
 
                 return self.client._yielder(recv_yielder(), self.req_id)
-    #}
-#}
+

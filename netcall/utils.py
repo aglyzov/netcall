@@ -1,17 +1,19 @@
 # vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
 
-from __future__ import absolute_import
+from __future__  import absolute_import
+from collections import namedtuple
 
 from sys     import stderr, modules
 from imp     import new_module
 from runpy   import _get_module_details
 from logging import getLogger
 
-from pebble import ThreadPool
-
 
 logger = getLogger('netcall')  # generic netcall logger
 _gevent_cache = {}
+
+ZMQClasses       = namedtuple('ZMQClasses', 'Context Poller')
+
 
 #-----------------------------------------------------------------------------
 # Utilies
@@ -31,10 +33,10 @@ def setup_logger(logger=None, level='DEBUG', format=None, stream=stderr):  #{
         level  = getLevelName(level)
 
     if format is None:
-        format = "%(relativeCreated).1fms:%(process)s/%(threadName)s:%(levelname)s:%(name)s:%(funcName)s():%(message)s"
+        format = "%(asctime)s.%(msecs)d:%(process)s/%(threadName)s:%(levelname)s:%(name)s:%(funcName)s:%(message)s"
 
     handler   = StreamHandler(stream)
-    formatter = Formatter(format)
+    formatter = Formatter(format, datefmt="%H:%M:%S")
     handler.setLevel(level)
     handler.setFormatter(formatter)
     logger.setLevel(level)
@@ -65,6 +67,8 @@ def import_module(name, cache=modules):  #{
     return module
 #}
 def gevent_patched_module(name, items=None, cache=_gevent_cache):  #{
+    """ Returns a gevent monkey-patched module (bypassing sys.modules)
+    """
     if name in cache:
         return cache[name]
 
@@ -110,6 +114,30 @@ def detect_green_env():  #{
     else:
         return None
 #}
+def green_device(inp, out, env=None):  #{
+    """ Runs a greenlet-compatible ZMQ device (message forwarder).
+        Starts two green threads, one for each direction.
+    """
+    from .concurrency import get_tools
+
+    env   = env or detect_green_env() or 'gevent'
+    spawn = get_tools(env=env)[0]
+
+    def _inp_to_out():
+        while True:
+            out.send_multipart(inp.recv_multipart())
+
+    def _out_to_inp():
+        while True:
+            inp.send_multipart(out.recv_multipart())
+
+    i2o = spawn(_inp_to_out)
+    o2i = spawn(_out_to_inp)
+
+    i2o.join()
+    o2i.join()
+#}
+
 def get_zmq_classes(env=None):  #{
     """ Returns ZMQ Context and Poller classes that are
         compatible with the current environment.
@@ -140,90 +168,6 @@ def get_zmq_classes(env=None):  #{
         from zmq import Context, Poller
 
     return Context, Poller
-#}
-def get_green_tools(env=None):  #{
-    """ Returns a tuple of callables
-          (spawn, spawn_later, Event, AsyncResult, Queue, Empty)
-        compatible with the current green environment.
-
-        Tries to detect a monkey-patched green thread environment
-        and choses an appropriate Context class.
-
-        Gevent, Eventlet and Greenhouse are supported.
-    """
-    env = env or detect_green_env() or 'gevent'
-
-    if env == 'gevent':
-        from gevent       import spawn, spawn_later
-        from gevent.event import Event
-        from gevent.queue import Queue, Empty
-        threading = gevent_patched_threading()
-        def Condition(*args, **kwargs):
-            return threading._Condition(*args, **kwargs)
-
-    elif env == 'eventlet':
-        from eventlet                 import Queue, spawn as _spawn, spawn_after
-        from eventlet.queue           import Empty
-        from eventlet.green.threading import Event, Condition
-
-        def spawn(*ar, **kw):
-            g = _spawn(*ar, **kw); g.join = g.wait; return g
-
-        def spawn_later(*ar, **kw):
-            g = spawn_after(*ar, **kw); g.join = g.wait; return g
-
-    elif env == 'greenhouse':
-        from greenhouse import greenlet, schedule, schedule_in, Event, Condition, Queue, Empty
-        class Greenlet(object):
-            def __init__(self, func, *args, **kwargs):
-                self.exit_ev = Event()
-                def func_ev():
-                    try:     func(*args, **kwargs)
-                    except:  raise
-                    finally: self.exit_ev.set()
-                self.greenlet = greenlet(func_ev)
-            def wait(self, *args, **kwargs):
-                return self.exit_ev.wait(*args, **kwargs)
-            def spawn(self, after=None):
-                if after is None:
-                    schedule(self.greenlet)
-                else:
-                    schedule_in(after, self.greenlet)
-                return self
-            # aliases
-            join = wait
-            run  = spawn
-
-        def spawn(func, *args, **kwargs):
-            g = Greenlet(func, *args, **kwargs)
-            return g.spawn()
-
-        def spawn_later(sec, func, *args, **kwargs):
-            g = Greenlet(func, *args, **kwargs)
-            return g.spawn(after=sec)
-
-    else:
-        raise ValueError('unsupported green environment %r' % env)
-
-    return spawn, spawn_later, Event, Condition, Queue, Empty
-#}
-def green_device(inp, out, env=None):  #{
-    env   = env or detect_green_env() or 'gevent'
-    spawn = get_green_tools(env=env)[0]
-
-    def _inp_to_out():
-        while True:
-            out.send_multipart(inp.recv_multipart())
-
-    def _out_to_inp():
-        while True:
-            inp.send_multipart(out.recv_multipart())
-
-    i2o = spawn(_inp_to_out)
-    o2i = spawn(_out_to_inp)
-
-    i2o.join()
-    o2i.join()
 #}
 
 class RemoteMethodBase(object):  #{

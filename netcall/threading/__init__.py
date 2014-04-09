@@ -50,6 +50,6 @@ from ..utils        import logger, RemoteMethod
 from ..errors       import RPCError, RemoteRPCError, RPCTimeoutError
 from ..serializer   import *
 
-from .service import ThreadingRPCService, ThreadPool
+from .service import ThreadingRPCService
 from .client  import ThreadingRPCClient
 

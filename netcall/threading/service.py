@@ -27,7 +27,7 @@ from threading import Event
 import zmq
 
 from ..base_service import RPCServiceBase
-from ..utils        import get_zmq_classes, ThreadPool
+from ..utils        import get_zmq_classes
 
 
 #-----------------------------------------------------------------------------

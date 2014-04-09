@@ -1,4 +1,4 @@
-# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
+# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0
 
 """
 An RPC client class using ZeroMQ as a transport and
@@ -27,12 +27,12 @@ from threading import Event, Timer, Condition
 try:
     from concurrent.futures import Future, TimeoutError
 except ImportError:
-    from ..futures import Future, TimeoutError
+    from ..concurrency.futures import Future, TimeoutError
 
 import zmq
 
 from ..base_client import RPCClientBase
-from ..utils       import get_zmq_classes, ThreadPool
+from ..utils       import get_zmq_classes
 from ..errors      import RPCTimeoutError
 
 
@@ -40,11 +40,11 @@ from ..errors      import RPCTimeoutError
 # RPC Service Proxy
 #-----------------------------------------------------------------------------
 
-class ThreadingRPCClient(RPCClientBase):  #{
+class ThreadingRPCClient(RPCClientBase):
     """ An asynchronous RPC client whose requests will not block.
         Uses the standard Python threading API for concurrency.
     """
-    def __init__(self, context=None, pool=None, **kwargs):  #{
+    def __init__(self, context=None, pool=None, **kwargs):
         """
         Parameters
         ==========
@@ -90,23 +90,23 @@ class ThreadingRPCClient(RPCClientBase):  #{
         # maintaining threads
         self.io_thread  = self.pool.schedule(self._io_thread)
         self.req_thread = self.pool.schedule(self._req_thread)
-    #}
-    def bind(self, *args, **kwargs):  #{
+
+    def bind(self, *args, **kwargs):
         result = super(ThreadingRPCClient, self).bind(*args, **kwargs)
         self._ready_ev.set()  # wake up the io_thread
         return result
-    #}
-    def bind_ports(self, *args, **kwargs):  #{
+
+    def bind_ports(self, *args, **kwargs):
         result = super(ThreadingRPCClient, self).bind_ports(*args, **kwargs)
         self._ready_ev.set()  # wake up the io_thread
         return result
-    #}
-    def connect(self, *args, **kwargs):  #{
+
+    def connect(self, *args, **kwargs):
         result = super(ThreadingRPCClient, self).connect(*args, **kwargs)
         self._ready_ev.set()  # wake up the io_reader
         return result
-    #}
-    def _send_request(self, request):  #{
+
+    def _send_request(self, request):
         """ Send a multipart request to a service.
             Here we send the request down the internal req_pub socket
             so that an io_thread could send it back to the service.
@@ -114,8 +114,8 @@ class ThreadingRPCClient(RPCClientBase):  #{
             Notice: request is a list produced by self._build_request()
         """
         self.req_queue.put(request)
-    #}
-    def _req_thread(self):  #{
+
+    def _req_thread(self):
         """ Forwards results from req_queue to the req_pub socket
             so that an I/O thread could send them forth to a service
         """
@@ -143,8 +143,8 @@ class ThreadingRPCClient(RPCClientBase):  #{
             logger.error(e, exc_info=True)
 
         logger.debug('req_thread exited')
-    #}
-    def _io_thread(self):  #{
+
+    def _io_thread(self):
         """ I/O thread
 
             Waits for a ZMQ socket to become ready (._ready_ev), then processes incoming requests/replies
@@ -248,12 +248,12 @@ class ThreadingRPCClient(RPCClientBase):  #{
         req_sub.close(0)
 
         logger.debug('io_thread exited')
-    #}
-    def _get_tools(self):  #{
+
+    def _get_tools(self):
         "Returns a tuple (Event, Queue, Future, TimeoutError, Condition)"
         return Event, Queue, Future, TimeoutError, Condition
-    #}
-    def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):  #{
+
+    def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):
         """
         Call the remote method with *args and **kwargs.
 
@@ -308,8 +308,8 @@ class ThreadingRPCClient(RPCClientBase):  #{
         finally:
             timer and timer.cancel()
         return result
-    #}
-    def shutdown(self):  #{
+
+    def shutdown(self):
         """Close the socket and signal the io_thread to exit"""
         self._ready = False
         self._ready_ev.set()
@@ -330,5 +330,4 @@ class ThreadingRPCClient(RPCClientBase):  #{
             self.pool.close()
             self.pool.stop()
             self.pool.join()
-    #}
-#}
+

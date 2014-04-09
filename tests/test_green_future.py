@@ -1,16 +1,16 @@
 # vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
 
-from netcall.futures import Future, TimeoutError
-from netcall.utils   import gevent_patched_threading
+from netcall.concurrency.futures import Future, TimeoutError
 
 from .base import BaseCase
 
 
 try:
-    from gevent import spawn, sleep
+    from gevent        import spawn, sleep
+    from netcall.utils import gevent_patched_threading
     threading = gevent_patched_threading()
 
-    class ConcurrencyTest(BaseCase):
+    class GreenFutureTest(BaseCase):
 
         def test_default_future_blocks_greenlets(self):
             """ Default Future using regular Condition/RLock blocks greenlets

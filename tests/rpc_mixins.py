@@ -2,7 +2,7 @@
 
 from types import GeneratorType
 
-from netcall import RemoteRPCError
+from netcall import RemoteRPCError, RPCTimeoutError
 
 
 class RPCCallsMixIn(object):
@@ -17,6 +17,7 @@ class RPCCallsMixIn(object):
     def setUp(self):
         super(RPCCallsMixIn, self).setUp()
 
+        assert self.tools
         assert self.client
         assert self.service
 
@@ -137,6 +138,15 @@ class RPCCallsMixIn(object):
 
         self.assertEqual(self.client.fn_one_arg_one_kwarg(7, arg2=3), 21)
         self.assertEqual(self.client.fn_vargs_vkwargs(7, 5, argA=3, argB=18), 21)
+
+
+    def test_timeout(self):
+        @self.service.register
+        def fixture():
+            self.tools.sleep(0.2)
+
+        with self.assertRaises(RPCTimeoutError):
+            self.client.call('fixture', timeout=0.1)
 
 
     def test_object(self):

@@ -14,10 +14,10 @@ class ThreadingBase(BaseCase):
     def setUp(self):
         env = None
         Context, _ = get_zmq_classes(env)
-        tools      = get_tools(env)
 
+        self.tools    = get_tools(env)
         self.context  = Context()
-        self.executor = tools.Executor(24)
+        self.executor = self.tools.Executor(24)
         self.client   = ThreadingRPCClient(context=self.context, executor=self.executor)
         self.service  = ThreadingRPCService(context=self.context, executor=self.executor)
 

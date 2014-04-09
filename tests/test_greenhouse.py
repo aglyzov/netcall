@@ -14,10 +14,10 @@ class GreenhouseBase(BaseCase):
     def setUp(self):
         env = 'greenhouse'
         Context, _ = get_zmq_classes(env)
-        tools      = get_tools(env)
 
+        self.tools    = get_tools(env)
         self.context  = Context()
-        self.executor = tools.Executor(24)
+        self.executor = self.tools.Executor(24)
         self.client   = GreenRPCClient(context=self.context, green_env=env, executor=self.executor)
         self.service  = GreenRPCService(context=self.context, green_env=env, executor=self.executor)
 

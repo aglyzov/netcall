@@ -1,3 +1,23 @@
+"""
+Base classes for devices.
+
+Authors:
+
+* Axel Voitier
+
+"""
+#-----------------------------------------------------------------------------
+#  Copyright (C) 2012-2014. Brian Granger, Min Ragan-Kelley, Alexander Glyzov,
+#  Axel Voitier
+#
+#  Distributed under the terms of the BSD License.  The full license is in
+#  the file LICENSE distributed as part of this software.
+#-----------------------------------------------------------------------------
+
+#-----------------------------------------------------------------------------
+# Imports
+#-----------------------------------------------------------------------------
+
 import re
 from collections import namedtuple
 from functools import partial
@@ -6,7 +26,19 @@ from logging import getLogger
 from ..base  import RPCBase
 from ..utils import detect_green_env, get_zmq_classes, get_green_tools
 
+#-----------------------------------------------------------------------------
+# Base device classes
+#-----------------------------------------------------------------------------
+
+
 class DeviceSocket(RPCBase):
+    """
+    A DeviseSocket is basically a subclass of RPCBase, thus benefiting from 
+    all its bind/connect methods. The socket type is given in the constructor.
+    
+    Also, all the methods of ZMQ's Socket are made available directly on this
+    object.
+    """
     logger = getLogger('netcall.devices')
     
     def __init__(self, socket_type, env=None, context=None, **kwargs):
@@ -33,7 +65,76 @@ class DeviceSocket(RPCBase):
         return getattr(self.socket, attr)
         
 class BaseDevice(object):
-
+    """
+    A BaseDevice does all the heavy lifting for implementing devices, ie. an 
+    object connecting one or more socket inputs to one or more socket outputs.
+    The difference with the original ZMQ device/proxy is that the subclasses of
+    BaseDevice get to control how data are handled.
+    
+    To subclass BaseDevice you need some minimal boiler plate. First, in
+    addition to extend BaseDevice itself, it also has to extend a namedtuple
+    listing the name of the sockets. Their order of declaration is important
+    for later as well.
+    You will then be able to access the sockets directly by their names as 
+    members of the object. Or by iterating over. Or by accessing the object has
+    an array.
+    
+    You define the socket types by setting a class member named socket_types.
+    It should be an array of ZMQ's socket types in their order of declaration
+    in the namedtuple.
+    
+    You can pass keyword arguments to BaseDevice. All arguments recognized by
+    DeviceSocket/RPCBase are available and will be passed to each declared
+    sockets. In addition, if you want to specify arguments to be only for a
+    particular socket (eg. identity), prefix the argument name with
+    'socketname_' where socketname would be a name given in the namedtuple.
+    
+    To bind/connect the sockets, call the DeviceSocket/RPCBase methods for it
+    by suffixing them with '_socketname'.
+    Alternatively, you can also directly call ZMQ methods on the socket
+    themselves.
+    
+    The BaseDevice will handle the creation, start and management of worker
+    threads/greenlets associated to each data-flow you will declare.
+    For each socket you wish to read from and process data, create a function
+    doing the inputs/outputs, and register it with self._handlers.append().
+    You should append a tuple (socket, function). When called, the function
+    will receives all the ZMQ sockets in their order of declaration in the
+    namedtuple. Alternatively, you can also directly use self.socketname.
+    BaseDevice will take care of polling on the sockets if necessary (when
+    using threads), and looping over.
+    
+    Example (this is effectively a load balancer device):
+    > from collections import namedtuple
+    > import zmq
+    > from netcall.devices import BaseDevice
+    > 
+    > class MyDevice(BaseDevice, namedtuple('MyDevice', 'client service')):
+    >     __slots__ = () # In order to save memory from namedtuple
+    >     socket_types = [zmq.ROUTER, zmq.DEALER]
+    >
+    >     def __init__(self, **kwargs):
+    >         super(MyDevice, self).__init__(**kwargs)
+    >         self._handlers.append(
+    >             (self.client.socket, self._handle_client_to_service))
+    >         self._handlers.append(
+    >             (self.service.socket, self._handle_service_to_client))
+    >
+    >     def _handle_client_to_service(self, s_client, s_service):
+    >         s_service.send_multipart(s_client.recv_multipart())
+    >    
+    >     def _handle_service_to_client(self, s_client, s_service):
+    >         s_client.send_multipart(s_service.recv_multipart())
+    >
+    > my_device = MyDevice(client_identity='myclient', env='gevent')
+    > my_device.bind_client('tcp://127.0.0.1:5000') # From RPCBase
+    > my_device.service.connect('tcp://192.168.1.12:6000) # From ZMQ
+    >
+    > my_device.start() # Non-blocking
+    > my_device.serve() # Blocking
+    > ...
+    > my_device.shutdown()
+    """
     def __new__(cls, **kwargs):
         devices = []
         devices_args = []

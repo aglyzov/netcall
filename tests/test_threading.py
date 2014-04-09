@@ -1,7 +1,8 @@
 # vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
 
-from netcall           import get_zmq_classes
-from netcall.threading import ThreadPool, ThreadingRPCClient, ThreadingRPCService
+from netcall.utils       import get_zmq_classes
+from netcall.threading   import ThreadingRPCClient, ThreadingRPCService
+from netcall.concurrency import get_tools
 
 from .base          import BaseCase
 from .client_mixins import ClientBindConnectMixIn
@@ -11,12 +12,14 @@ from .rpc_mixins    import RPCCallsMixIn
 class ThreadingBase(BaseCase):
 
     def setUp(self):
-        Context, _ = get_zmq_classes()
+        env = None
+        Context, _ = get_zmq_classes(env)
+        tools      = get_tools(env)
 
-        self.context = Context()
-        self.pool    = ThreadPool(24)
-        self.client  = ThreadingRPCClient(context=self.context, pool=self.pool)
-        self.service = ThreadingRPCService(context=self.context, pool=self.pool)
+        self.context  = Context()
+        self.executor = tools.Executor(24)
+        self.client   = ThreadingRPCClient(context=self.context, executor=self.executor)
+        self.service  = ThreadingRPCService(context=self.context, executor=self.executor)
 
         super(ThreadingBase, self).setUp()
 
@@ -24,9 +27,7 @@ class ThreadingBase(BaseCase):
         self.client.shutdown()
         self.service.shutdown()
         self.context.term()
-        self.pool.close()
-        self.pool.stop()
-        self.pool.join()
+        self.executor.shutdown()
 
         super(ThreadingBase, self).tearDown()
 

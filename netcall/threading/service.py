@@ -20,13 +20,12 @@ Authors
 # Imports
 #-----------------------------------------------------------------------------
 
-from random    import randint
-from Queue     import Queue, Empty
-from threading import Event
+from random import randint
 
 import zmq
 
 from ..base_service import RPCServiceBase
+from ..concurrency  import get_tools
 from ..utils        import get_zmq_classes
 
 
@@ -35,22 +34,21 @@ from ..utils        import get_zmq_classes
 #-----------------------------------------------------------------------------
 
 class ThreadingRPCService(RPCServiceBase):
-    """ A threading RPC service that takes requests over a ROUTER socket.
+    """ An asynchronous RPC service that serves requests over a ROUTER socket.
+        Using the standard Python threading API for concurrency.
     """
-    def __init__(self, context=None, pool=None, **kwargs):  #{
+    CONCURRENCY = 1024
+
+    def __init__(self, context=None, executor=None, **kwargs):  #{
         """
         Parameters
         ==========
-        context    : <Context>
-            An existing ZMQ Context instance, if not passed get_zmq_classes()
-            will be used to obtain a compatible Context class.
-        pool       : <ThreadPool>
-            A thread pool to run handlers in.
-        serializer : <Serializer>
-            An instance of a Serializer subclass that will be used to serialize
-            and deserialize args, kwargs and the result.
+        context    : optional ZMQ <Context>
+        executor   : optional task <Executor>
+        serializer : optional <Serializer> that will be used to serialize
+                     and deserialize args, kwargs and results
         """
-        Context, _ = get_zmq_classes()
+        Context, _ = get_zmq_classes()  # auto detect green env
 
         if context is None:
             self.context = Context.instance()
@@ -58,21 +56,18 @@ class ThreadingRPCService(RPCServiceBase):
             assert isinstance(context, Context)
             self.context = context
 
-        super(ThreadingRPCService, self).__init__(**kwargs)
+        self._tools    = get_tools(env=None)  # force threading API
+        self._executor = executor or self._tools.Executor(limit=self.CONCURRENCY)
+        self._ext_exec = bool(executor)
 
-        if pool is None:
-            self.pool      = ThreadPool(128)
-            self._ext_pool = False
-        else:
-            self.pool      = pool
-            self._ext_pool = True
+        super(ThreadingRPCService, self).__init__(**kwargs)
 
         self.io_thread  = None
         self.res_thread = None
 
         # result drainage
-        self._sync_ev  = Event()
-        self.res_queue = Queue(maxsize=self.pool._workers)
+        self._sync_ev  = self._tools.Event()
+        self.res_queue = self._tools.Queue(maxsize=self._executor._limit)
         self.res_pub   = self.context.socket(zmq.PUB)
         self.res_addr  = 'inproc://%s-%s' % (
             self.__class__.__name__,
@@ -83,10 +78,6 @@ class ThreadingRPCService(RPCServiceBase):
     def _create_socket(self):  #{
         super(ThreadingRPCService, self)._create_socket()
         self.socket = self.context.socket(zmq.ROUTER)
-    #}
-    def _get_tools(self):  #{
-        "Returns a tuple (Queue, Empty)"
-        return Queue, Empty
     #}
     def _send_reply(self, reply):  #{
         """ Send a multipart reply to a caller.
@@ -128,6 +119,7 @@ class ThreadingRPCService(RPCServiceBase):
 
                 while True:
                     result = rcv_result()
+                    logger.debug('received %r', result)
                     if result is None:
                         logger.debug('res_thread received an EXIT signal')
                         fwd_result([b''])  # pass the EXIT signal to the io_thread
@@ -152,6 +144,8 @@ class ThreadingRPCService(RPCServiceBase):
             poll = poller.poll
 
             handle_request = self._handle_request
+            running        = True
+            spawn          = self._executor.submit
 
             try:
                 # synchronizing with the res_thread
@@ -160,21 +154,19 @@ class ThreadingRPCService(RPCServiceBase):
                 logger.debug('I/O thread is synchronized')
                 self._sync_ev.set()
 
-                self.running = True
-
-                while self.running:
+                while running:
                     for socket, _ in poll():
                         if socket is task_sock:
                             request = task_sock.recv_multipart()
                             logger.debug('io_thread received %r' % request)
                             # handle request in a thread-pool
-                            self.pool.schedule(handle_request, args=(request,))
+                            spawn(handle_request, request)
                         elif socket is res_sub:
                             result = res_sub.recv_multipart()
                             #logger.debug('received a result: %r' % result)
                             if not result[0]:
                                 logger.debug('io_thread received an EXIT signal')
-                                self.running = False
+                                running = False
                                 break
                             else:
                                 logger.debug('io_thread sending %r' % result)
@@ -188,20 +180,37 @@ class ThreadingRPCService(RPCServiceBase):
             logger.debug('io_thread exited')
         #}
 
-        self.res_thread = self.pool.schedule(res_thread)
-        self.io_thread  = self.pool.schedule(io_thread)
+        self.res_thread = self._executor.submit(res_thread)
+        self.io_thread  = self._executor.submit(io_thread)
 
         return self.res_thread, self.io_thread
     #}
     def stop(self):  #{
         """ Stop the RPC service (semi-blocking) """
-        if self.res_thread and not self.res_thread.ready:
-            self.logger.debug('signaling the threads to exit')
-            self.res_queue.put(None)
-            self.res_thread.wait()
-            self.io_thread.wait()
+        if not self.res_thread and not self.io_thread:
+            return
+
+        bound     = self.bound
+        connected = self.connected
+
+        self.logger.debug('signaling the threads to exit')
+
+        self.res_queue.put(None)
+        self.reset()
+
+        if self.res_thread:
+            self.res_thread.exception(timeout=0.3)
+            self.res_thread.cancel()
             self.res_thread = None
-            self.io_thread  = None
+
+        if self.io_thread:
+            self.io_thread.exception(timeout=0.3)
+            self.io_thread.cancel()
+            self.io_thread = None
+
+        # restore bindings/connections
+        self.bind(bound)
+        self.connect(connected)
     #}
     def shutdown(self):  #{
         """ Signal the threads to exit and close all sockets """
@@ -211,11 +220,9 @@ class ThreadingRPCService(RPCServiceBase):
         self.socket.close(0)
         self.res_pub.close(0)
 
-        if not self._ext_pool:
-            self.logger.debug('stopping the pool')
-            self.pool.close()
-            self.pool.stop()
-            self.pool.join()
+        if not self._ext_exec:
+            self.logger.debug('shutting down the executor')
+            self._executor.shutdown(cancel=True)
     #}
     def serve(self):  #{
         """ Serve RPC requests (blocking)
@@ -223,10 +230,11 @@ class ThreadingRPCService(RPCServiceBase):
             Simply waits for self.res_thread and self.io_thread to exit
         """
         res, io = self.res_thread, self.io_thread
-        assert res is not None and io is not None, 'not started'
+        if res is not None and io is not None:
+            self.start()
 
-        while not res.ready or not io.ready:
-            res.wait(0.25)
-            io.wait(0.25)
+        while res.running() and io.running():
+            res.wait(0.3)
+            io.wait(0.3)
     #}
 

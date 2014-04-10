@@ -25,9 +25,9 @@ from zmq.eventloop.ioloop    import IOLoop, DelayedCallback
 
 from tornado.concurrent import Future
 
-from ..base   import RPCClientBase
-from ..utils  import RemoteMethodBase, get_zmq_classes
-from ..errors import RPCTimeoutError
+from ..base_client import RPCClientBase
+from ..utils       import RemoteMethodBase, get_zmq_classes
+from ..errors      import RPCTimeoutError
 
 
 #-----------------------------------------------------------------------------

@@ -258,29 +258,38 @@ class RPCCallsMixIn(object):
         gen = None
         self.assertDictEqual(self.service.generators, {})
 
-    def test_generator_close(self):
+    def test_generator_close_explicit(self):
         closed = [False]
         @self.service.register
         def echo(value=None):
             try:
-                while True:
-                    yield
+                while True: yield value
             finally:
                 closed[0] = True
 
         gen = self.client.echo(1)
         next(gen)
+        
         gen.close()
-        self.assertTrue(closed)
+        
+        self.tools.sleep(0.2)  # allows GC to collect the client generator
+                               # and its Queue
+                               
+        self.assertTrue(closed[0])
         with self.assertRaises(StopIteration):
             next(gen)
 
         self.assertFalse(self.service.generators)
+        self.assertFalse(self.client._gen_queues)
 
-    def test_generator_cleanup(self):
+    def test_generator_close_implicit(self):
+        closed = [False]
         @self.service.register
         def repeat(value=None):
-            while True: yield value
+            try:
+                while True: yield value
+            finally:
+                closed[0] = True
 
         gen = self.client.repeat(1)
         next(gen)
@@ -290,7 +299,8 @@ class RPCCallsMixIn(object):
 
         self.tools.sleep(0.2)  # allows GC to collect the client generator
                                # and its Queue
-
+                               
+        self.assertTrue(closed[0])
         self.assertFalse(self.service.generators)
         self.assertFalse(self.client._gen_queues)
 

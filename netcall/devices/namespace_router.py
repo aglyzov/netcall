@@ -20,7 +20,7 @@ class NamespaceRouter(BaseDevice, namedtuple('NamespaceRouter', 'client service'
         
     def _handle_client_to_service(self, s_client, s_service):
         data = s_client.recv_multipart()
-        self.logger.debug('received from client: %r' % data)
+        self.logger.debug('received from client: %r', data)
         
         boundary = data.index(b'|')
         calling = data[boundary+2]
@@ -30,15 +30,15 @@ class NamespaceRouter(BaseDevice, namedtuple('NamespaceRouter', 'client service'
         data[boundary+2] = new_call
         data = [new_route] + data
         
-        self.logger.debug('sending to service: %r' % data)
+        self.logger.debug('sending to service: %r', data)
         s_service.send_multipart(data)
         
     def _handle_service_to_client(self, s_client, s_service):
         data = s_service.recv_multipart()
-        self.logger.debug('received from service: %r' % data)
+        self.logger.debug('received from service: %r', data)
         
         data = data[1:]
         
-        self.logger.debug('sending to client: %r' % data)
+        self.logger.debug('sending to client: %r', data)
         s_client.send_multipart(data)
         

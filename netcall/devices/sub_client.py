@@ -28,7 +28,7 @@ class SubClient(BaseDevice, namedtuple('SubClient', 'service sub client')):
         
     def _handle_client_to_service(self, s_service, s_sub, s_client):
         data = s_client.recv_multipart()
-        self.logger.debug('received from client: %r' % data)
+        self.logger.debug('received from client: %r', data)
         
         boundary = data.index(b'|')
         req_id = data[boundary+1]
@@ -39,14 +39,14 @@ class SubClient(BaseDevice, namedtuple('SubClient', 'service sub client')):
             self.logger.debug('skipping %r/%r' % (req_id, proc))
             return
         
-        self.logger.debug('sending to service %r' % data)
+        self.logger.debug('sending to service %r', data)
         s_service.send_multipart(data)
         
     def _handle_service_to_client(self, s_service, s_sub, s_client):
         Queue = self._tools.Queue
         
         data = s_service.recv_multipart()
-        self.logger.debug('receiving from service: %r' % data)
+        self.logger.debug('receiving from service: %r', data)
         
         boundary = data.index(b'|')
         req_id = data[boundary+1]
@@ -66,10 +66,10 @@ class SubClient(BaseDevice, namedtuple('SubClient', 'service sub client')):
                 self.known_topics[topic] = []
             self.known_topics[topic].append(req_id)
             
-            self.logger.debug('subscribing to %r' % topic)
+            self.logger.debug('subscribing to %r', topic)
             s_sub.setsockopt(SUBSCRIBE, topic)
 
-        self.logger.debug('sending to client %r' % data)
+        self.logger.debug('sending to client %r', data)
         s_client.send_multipart(data)
                 
 
@@ -78,7 +78,7 @@ class SubClient(BaseDevice, namedtuple('SubClient', 'service sub client')):
         spawn = self._executor.submit
         
         data = s_sub.recv_multipart()
-        self.logger.debug('receiving from sub %r' % data)
+        self.logger.debug('receiving from sub %r', data)
         
         topic, proc = data[0:2]
         
@@ -90,11 +90,11 @@ class SubClient(BaseDevice, namedtuple('SubClient', 'service sub client')):
 
     def _send_to_client(self, s_client, s_sub, queue, topic, req_id, proc, data):
         queue.get()
-        self.logger.debug('sending to client %r' % data)
+        self.logger.debug('sending to client %r', data)
         s_client.send_multipart(data)
         
         if proc == 'FAIL':
-            self.logger.debug('unsubscribing from %r' % topic)
+            self.logger.debug('unsubscribing from %r', topic)
             s_sub.setsockopt(UNSUBSCRIBE, topic)
             del self.known_yields[req_id]
             

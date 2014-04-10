@@ -35,7 +35,7 @@ class PubService(BaseDevice, namedtuple('PubService', 'service pub client')):
         
     def _handle_client_to_service(self, s_service, s_pub, s_client):
         data = s_client.recv_multipart()
-        self.logger.debug('received from client: %r' % data)
+        self.logger.debug('received from client: %r', data)
         
         boundary = data.index(b'|')
         req_id = data[boundary+1]
@@ -45,11 +45,11 @@ class PubService(BaseDevice, namedtuple('PubService', 'service pub client')):
         if proc in self.known_procs_yielding:
             self.known_procs_yielding[proc].append(req_id)
             reply = data[0:boundary+2] + ['PUB', proc] + self.none_result #TODO: lastval goes here
-            self.logger.debug('sending to client %r' % reply)
+            self.logger.debug('sending to client %r', reply)
             s_client.send_multipart(reply)
             return
         
-        self.logger.debug('sending to service %r' % data)
+        self.logger.debug('sending to service %r', data)
         s_service.send_multipart(data)
         
     def _handle_service_to_client(self, s_service, s_pub, s_client):
@@ -58,7 +58,7 @@ class PubService(BaseDevice, namedtuple('PubService', 'service pub client')):
         Queue = self._tools.Queue
     
         data = s_service.recv_multipart()
-        self.logger.debug('receiving from service: %r' % data)
+        self.logger.debug('receiving from service: %r', data)
         
         boundary = data.index(b'|')
         req_id = data[boundary+1]
@@ -74,7 +74,7 @@ class PubService(BaseDevice, namedtuple('PubService', 'service pub client')):
 
                 data = data[0:boundary+2] + ['PUB', original_proc, data[boundary+3]]
                 
-                self.logger.debug('sending to client %r' % data)
+                self.logger.debug('sending to client %r', data)
                 s_client.send_multipart(data) # TODO: Send pub addr here
                 
                 #spawn_later(0.5, yield_consummer, req_id) # Very short wait time, only good for LAN
@@ -82,13 +82,13 @@ class PubService(BaseDevice, namedtuple('PubService', 'service pub client')):
                 
             else:
                 data = [original_proc] + data[boundary+2:]
-                self.logger.debug('sending to pub %r' % data)
+                self.logger.debug('sending to pub %r', data)
                 s_pub.send_multipart(data)
                 self.known_yields[req_id].put(True)
                 
         elif (proc == 'FAIL') and (req_id in self.known_yields):
             data = [original_proc] + data[boundary+2:]
-            self.logger.debug('sending to pub %r' % data)
+            self.logger.debug('sending to pub %r', data)
             s_pub.send_multipart(data)
             self.known_yields[req_id].put(False)
             del self.known_yields[req_id]
@@ -100,10 +100,10 @@ class PubService(BaseDevice, namedtuple('PubService', 'service pub client')):
                 del self.known_procs_yielding[original_proc]
             
         elif (proc == 'ACK') and (req_id in self.known_yields):
-            self.logger.debug('skipping ACK for published yield %r' % req_id)
+            self.logger.debug('skipping ACK for published yield %r', req_id)
             return
         else:
-            self.logger.debug('sending to client %r' % data)
+            self.logger.debug('sending to client %r', data)
             s_client.send_multipart(data)
             if proc != 'ACK': # OK or FAIL
                 original_proc = self.known_procs[req_id]
@@ -117,7 +117,7 @@ class PubService(BaseDevice, namedtuple('PubService', 'service pub client')):
         data = [b'|', req_id, '_SEND'] + self.none_args_kwargs + [self.ignore]
         while self.running:
             if queue.get():
-                self.logger.debug('sending to service %r' % data)
+                self.logger.debug('sending to service %r', data)
                 s_service.send_multipart(data)
             else:
                 return

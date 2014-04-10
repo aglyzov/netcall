@@ -1,4 +1,4 @@
-# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
+# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0
 
 """
 Green version of the RPC service
@@ -7,8 +7,8 @@ Authors:
 
 * Brian Granger
 * Alexander Glyzov
-"""
 
+"""
 #-----------------------------------------------------------------------------
 #  Copyright (C) 2012-2014. Brian Granger, Min Ragan-Kelley, Alexander Glyzov,
 #  Axel Voitier
@@ -24,7 +24,8 @@ Authors:
 import zmq
 
 from ..base_service import RPCServiceBase
-from ..utils        import get_zmq_classes, detect_green_env, get_green_tools
+from ..concurrency  import get_tools
+from ..utils        import get_zmq_classes, detect_green_env
 
 
 #-----------------------------------------------------------------------------
@@ -32,22 +33,22 @@ from ..utils        import get_zmq_classes, detect_green_env, get_green_tools
 #-----------------------------------------------------------------------------
 
 class GreenRPCService(RPCServiceBase):
-    """ An asynchronous RPC service that takes requests over a ROUTER socket.
+    """ An asynchronous RPC service that serves requests over a ROUTER socket.
         Using green threads for concurrency.
         Green environment is provided by either Gevent, Eventlet or Greenhouse
         and can be autodetected.
     """
-    def __init__(self, green_env=None, context=None, **kwargs):  #{
+    CONCURRENCY = 1024
+
+    def __init__(self, green_env=None, context=None, executor=None, **kwargs):
         """
         Parameters
         ==========
         green_env  : None | 'gevent' | 'eventlet' | 'greenhouse'
-        context    : <Context>
-            An existing Context instance, if not passed, green.Context.instance()
-            will be used.
-        serializer : <Serializer>
-            An instance of a Serializer subclass that will be used to serialize
-            and deserialize args, kwargs and the result.
+        context    : optional ZMQ <Context>
+        executor   : optional task <Executor>
+        serializer : optional <Serializer> that will be used to serialize
+                     and deserialize args, kwargs and results
         """
         self.green_env = green_env or detect_green_env() or 'gevent'
 
@@ -58,79 +59,83 @@ class GreenRPCService(RPCServiceBase):
         else:
             assert isinstance(context, Context)
             self.context = context
-            
-        self._green_tools = get_green_tools(env=self.green_env)
+
+        self._tools    = get_tools(env=self.green_env)
+        self._executor = executor or self._tools.Executor(limit=self.CONCURRENCY)
+        self._ext_exec = bool(executor)
+        self._task     = None
 
         super(GreenRPCService, self).__init__(**kwargs)
 
-        self.greenlet = None
-        # Can also use collections.deque, append() and popleft() being thread safe
-    #}
-    def _create_socket(self):  #{
+    def _create_socket(self):
         super(GreenRPCService, self)._create_socket()
         self.socket = self.context.socket(zmq.ROUTER)
         self.socket.identity = self.identity
-    #}
-    def _get_tools(self):  #{
-        "Returns a tuple (Queue, Empty)"
-        return self._green_tools[-2:]
-    #}
-    def start(self):  #{
+
+    def start(self):
         """ Start the RPC service (non-blocking).
 
-            Spawns a receive-reply greenlet that serves this socket.
+            Spawns a main-loop task that serves requests on this socket.
             Returns spawned greenlet instance.
         """
         assert self.bound or self.connected, 'not bound/connected?'
-        assert self.greenlet is None, 'already started'
+        assert self._task is None,           'already started'
 
         logger = self.logger
-        spawn  = self._green_tools[0]
+        spawn  = self._executor.submit
 
-        def receive_reply():
-            self.running = True
-            while self.running:
+        def main_loop():
+            recv_multipart = self.socket.recv_multipart
+            handle_request = self._handle_request
+
+            while True:
                 try:
-                    request = self.socket.recv_multipart()
+                    request = recv_multipart()
                 except Exception, e:
                     logger.warning(e)
                     break
-                spawn(self._handle_request, request)
-            self.running = False
-            logger.debug('receive_reply exited')
+                spawn(handle_request, request)
 
-        self.greenlet = spawn(receive_reply)
+            logger.debug('main_loop exited')
 
-        return self.greenlet
-    #}
-    def stop(self, ):  #{
+        self._task = spawn(main_loop)
+
+        return self._task
+
+    def stop(self, ):
         """ Stop the RPC service (non-blocking) """
-        if self.greenlet is None:
+        if self._task is None:
             return  # nothing to do
         bound     = self.bound
         connected = self.connected
         self.logger.debug('resetting the socket')
         self.reset()
         # wait for the greenlet to exit (closed socket)
-        self.greenlet.join()
-        self.greenlet = None
+        self._task.exception(timeout=0.3)
+        self._task.cancel()
+        self._task = None
         # restore bindings/connections
         self.bind(bound)
         self.connect(connected)
-    #}
-    def shutdown(self):  #{
+
+    def shutdown(self):
         """Close the socket and signal the reader greenlet to exit"""
         self.stop()
+
+        self.logger.debug('closing the socket')
         self.socket.close(0)
-    #}
-    def serve(self):  #{
+
+        if not self._ext_exec:
+            self.logger.debug('shutting down the executor')
+            self._executor.shutdown(cancel=True)
+
+    def serve(self):
         """ Serve RPC requests (blocking)
 
             Waits for the serving greenlet to exit.
         """
-        if self.greenlet is None:
+        if self._task is None:
             self.start()
 
-        return self.greenlet.join()
-    #}
+        return self._task.result()
 

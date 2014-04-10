@@ -92,12 +92,12 @@ class Worker(Process):
             math2.start(),
         ]
         for service in services:
-            service.wait()
+            service.result()
 
 
 if __name__ == '__main__':
-    from netcall.utils import setup_logger
-    setup_logger()
+    #from netcall.utils import logger, setup_logger
+    #setup_logger(logger)
 
     workers = [Worker() for _ in range(cpu_count())]
     for w in workers:

@@ -83,5 +83,5 @@ if __name__ == '__main__':
         math2.start(),
     ]
     for task in tasks:
-        task.wait()
+        task.exception()
 

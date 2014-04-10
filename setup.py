@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name = "netcall",
-    version = "0.3.1",
+    version = "0.3.5",
     packages = find_packages(),
 
     install_requires = ['pyzmq', 'pebble'],
@@ -13,7 +13,7 @@ setup(
     author_email = "bonoba@gmail.com",
     description = "A simple Python RPC system (ZeroMQ + Threading/Tornado/Gevent/Eventlet/Greenhouse)",
     license = "Modified BSD",
-    keywords = "ZeroMQ ZMQ PyZMQ Threading Tornado Green Greenlet Gevent Eventlet Greenhouse RPC async",
+    keywords = "ZeroMQ ZMQ PyZMQ Thread Threading Tornado Green Greenlet Gevent Eventlet Greenhouse RPC async",
     url = "http://github.com/aglyzov/netcall",
 )
 

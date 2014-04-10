@@ -27,7 +27,7 @@ from zmq.eventloop.ioloop    import IOLoop
 
 from tornado.concurrent import Future
 
-from ..base import RPCServiceBase
+from ..base_service import RPCServiceBase
 
 #-----------------------------------------------------------------------------
 # RPC Service

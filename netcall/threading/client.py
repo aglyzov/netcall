@@ -1,4 +1,4 @@
-# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
+# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0
 
 """
 An RPC client class using ZeroMQ as a transport and
@@ -20,44 +20,37 @@ Authors
 # Imports
 #-----------------------------------------------------------------------------
 
-from Queue     import Queue
-from random    import randint
-from threading import Event, Timer, Condition
-
-try:
-    from concurrent.futures import Future, TimeoutError
-except ImportError:
-    from ..futures import Future, TimeoutError
+from Queue   import Queue
+from random  import randint
+from weakref import WeakValueDictionary
 
 import zmq
 
 from ..base_client import RPCClientBase
-from ..utils       import get_zmq_classes, ThreadPool
-from ..errors      import RPCTimeoutError
+from ..concurrency import get_tools
+from ..utils       import get_zmq_classes
 
 
 #-----------------------------------------------------------------------------
 # RPC Service Proxy
 #-----------------------------------------------------------------------------
 
-class ThreadingRPCClient(RPCClientBase):  #{
+class ThreadingRPCClient(RPCClientBase):
     """ An asynchronous RPC client whose requests will not block.
         Uses the standard Python threading API for concurrency.
     """
-    def __init__(self, context=None, pool=None, **kwargs):  #{
+    CONCURRENCY = 128
+
+    def __init__(self, context=None, executor=None, **kwargs):
         """
         Parameters
         ==========
-        context    : <Context>
-            An existing ZMQ Context instance, if not passed get_zmq_classes()
-            will be used to obtain a compatible Context class.
-        pool       : <ThreadPool>
-            A thread pool to run handlers in.
-        serializer : <Serializer>
-            An instance of a Serializer subclass that will be used to serialize
-            and deserialize args, kwargs and the result.
+        context    : optional ZMQ <Context>
+        executor   : optional task <Executor>
+        serializer : optional <Serializer> that will be used to serialize
+                     and deserialize args, kwargs and results
         """
-        Context, _ = get_zmq_classes()
+        Context, _ = get_zmq_classes()  # auto detect green env
 
         if context is None:
             self.context = Context.instance()
@@ -65,17 +58,17 @@ class ThreadingRPCClient(RPCClientBase):  #{
             assert isinstance(context, Context)
             self.context = context
 
-        super(ThreadingRPCClient, self).__init__(**kwargs)  # base class
+        self._tools    = get_tools(env=None)  # force threading API
+        self._executor = executor or self._tools.Executor(limit=self.CONCURRENCY)
+        self._ext_exec = bool(executor)
 
-        if pool is None:
-            self.pool      = ThreadPool(128)
-            self._ext_pool = False
-        else:
-            self.pool      = pool
-            self._ext_pool = True
+        super(ThreadingRPCClient, self).__init__(**kwargs)
 
-        self._ready_ev = Event()
-        self._futures  = {}  # {<msg-id> : <_ReturnOrYieldFuture>}
+        Event = self._tools.Event
+
+        self._ready_ev   = Event()
+        self._futures    = {}                     # {<req_id> : <Future>}
+        self._gen_queues = WeakValueDictionary()  # {<req_id> : <Queue>}
 
         # request drainage
         self._sync_ev  = Event()
@@ -88,25 +81,25 @@ class ThreadingRPCClient(RPCClientBase):  #{
         self.req_pub.bind(self.req_addr)
 
         # maintaining threads
-        self.io_thread  = self.pool.schedule(self._io_thread)
-        self.req_thread = self.pool.schedule(self._req_thread)
-    #}
-    def bind(self, *args, **kwargs):  #{
+        self.io_thread  = self._executor.submit(self._io_thread)
+        self.req_thread = self._executor.submit(self._req_thread)
+
+    def bind(self, *args, **kwargs):
         result = super(ThreadingRPCClient, self).bind(*args, **kwargs)
         self._ready_ev.set()  # wake up the io_thread
         return result
-    #}
-    def bind_ports(self, *args, **kwargs):  #{
+
+    def bind_ports(self, *args, **kwargs):
         result = super(ThreadingRPCClient, self).bind_ports(*args, **kwargs)
         self._ready_ev.set()  # wake up the io_thread
         return result
-    #}
-    def connect(self, *args, **kwargs):  #{
+
+    def connect(self, *args, **kwargs):
         result = super(ThreadingRPCClient, self).connect(*args, **kwargs)
         self._ready_ev.set()  # wake up the io_reader
         return result
-    #}
-    def _send_request(self, request):  #{
+
+    def _send_request(self, request):
         """ Send a multipart request to a service.
             Here we send the request down the internal req_pub socket
             so that an io_thread could send it back to the service.
@@ -114,8 +107,8 @@ class ThreadingRPCClient(RPCClientBase):  #{
             Notice: request is a list produced by self._build_request()
         """
         self.req_queue.put(request)
-    #}
-    def _req_thread(self):  #{
+
+    def _req_thread(self):
         """ Forwards results from req_queue to the req_pub socket
             so that an I/O thread could send them forth to a service
         """
@@ -133,7 +126,7 @@ class ThreadingRPCClient(RPCClientBase):  #{
 
             while True:
                 request = rcv_request()
-                #logger.debug('req_thread received %r' % request)
+                logger.debug('received %r', request)
                 if request is None:
                     logger.debug('req_thread received an EXIT signal')
                     fwd_request([''])  # pass the EXIT signal to the io_thread
@@ -143,8 +136,8 @@ class ThreadingRPCClient(RPCClientBase):  #{
             logger.error(e, exc_info=True)
 
         logger.debug('req_thread exited')
-    #}
-    def _io_thread(self):  #{
+
+    def _io_thread(self):
         """ I/O thread
 
             Waits for a ZMQ socket to become ready (._ready_ev), then processes incoming requests/replies
@@ -153,13 +146,14 @@ class ThreadingRPCClient(RPCClientBase):  #{
         logger   = self.logger
         ready_ev = self._ready_ev
         futures  = self._futures
+        g_queues = self._gen_queues
 
         srv_sock = self.socket
         req_sub = self.context.socket(zmq.SUB)
         req_sub.connect(self.req_addr)
         req_sub.setsockopt(zmq.SUBSCRIBE, '')
 
-        _, Poller = get_zmq_classes()
+        _, Poller = get_zmq_classes()  # auto detect green env
         poller = Poller()
         poller.register(srv_sock, zmq.POLLIN)
         poller.register(req_sub,  zmq.POLLIN)
@@ -196,7 +190,6 @@ class ThreadingRPCClient(RPCClientBase):  #{
                                 logger.debug('io_thread received an EXIT signal')
                                 running = False
                                 break
-                            logger.debug('io_thread sending %r' % request)
                             srv_sock.send_multipart(request)
 
                     if reply_list is None:
@@ -206,7 +199,7 @@ class ThreadingRPCClient(RPCClientBase):  #{
                     logger.warning(e)
                     break
 
-                logger.debug('io_thread received %r' % reply_list)
+                logger.debug('received %r', reply_list)
 
                 reply = self._parse_reply(reply_list)
 
@@ -219,105 +212,53 @@ class ThreadingRPCClient(RPCClientBase):  #{
                 result   = reply['result']
 
                 if msg_type == b'ACK':
-                    #logger.debug('skipping ACK, req_id=%r' % req_id)
+                    #logger.debug('skipping ACK, req_id=%r', req_id)
                     continue
 
-                if msg_type == b'YIELD':
-                    futures_get_fn = futures.get
-                    future_init_fn = self._ReturnOrYieldFuture.init_as_yield
-                else: # For OK and FAIL
-                    futures_get_fn = futures.pop
-                    future_init_fn = self._ReturnOrYieldFuture.init_as_return
+                future = futures.pop(req_id, None)
 
-                future = futures_get_fn(req_id, None)
                 if future is None:
-                    # result is gone, must be a timeout
-                    #logger.debug('future result is gone (timeout?): req_id=%r' % req_id)
+                    queue = g_queues.get(req_id, None)
+                    if queue is not None:
+                        # existing generator
+                        if msg_type == b'YIELD':
+                            queue.put((result, None))
+                        elif msg_type == b'FAIL':
+                            queue.put((None, result))
+                    del queue  # IMPORTANT: clean up references so that
+                               #            self._gen_queues empties properly
                     continue
-                if not future.is_init():
-                    future_init_fn(future)
-
-                if msg_type in [b'OK', b'YIELD']:
-                    logger.debug('future.set_result(result), req_id=%r' % req_id)
-                    future.set_result(result)
                 else:
-                    logger.debug('future.set_exception(result), req_id=%r' % req_id)
-                    future.set_exception(result)
+                    if msg_type == b'OK':
+                        # normal result
+                        future.set_result(result)
+                    elif msg_type == b'FAIL':
+                        # exception
+                        future.set_exception(result)
+                    elif msg_type == b'YIELD':
+                        # new generator
+                        queue = self._tools.Queue(1)
+                        g_queues[req_id] = queue
+                        future.set_result(self._generator(req_id, queue.get))
 
         # -- cleanup --
         req_sub.close(0)
 
         logger.debug('io_thread exited')
-    #}
-    def _get_tools(self):  #{
-        "Returns a tuple (Event, Queue, Future, TimeoutError, Condition)"
-        return Event, Queue, Future, TimeoutError, Condition
-    #}
-    def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):  #{
-        """
-        Call the remote method with *args and **kwargs.
 
-        Parameters
-        ----------
-        proc_name : <str>   name of the remote procedure to call
-        args      : <tuple> positional arguments of the procedure
-        kwargs    : <dict>  keyword arguments of the procedure
-        ignore    : <bool>  whether to ignore result or wait for it
-        timeout   : <float> | None
-            Number of seconds to wait for a reply.
-            RPCTimeoutError is set as the future result in case of timeout.
-            Set to None, 0 or a negative number to disable.
-
-        Returns
-        -------
-        <object>
-            If the call succeeds, the result of the call will be returned.
-            If the call fails, `RemoteRPCError` will be raised.
-        """
-        if not (timeout is None or isinstance(timeout, (int, float))):
-            raise TypeError("timeout param: <float> or None expected, got %r" % timeout)
-
-        if not self._ready:
-            raise RuntimeError('bind or connect must be called first')
-
-        req_id, msg_list = self._build_request(proc_name, args, kwargs, ignore)
-
-        self.req_queue.put(msg_list)
-
-        if ignore:
-            return None
-
-        if timeout and timeout > 0:
-            def _abort_request():
-                result = self._futures.pop(req_id, None)
-                not result.is_init() and result.init_as_return()
-                if result is not None:
-                    tout_msg  = "Request %s timed out after %s sec" % (req_id, timeout)
-                    self.logger.debug(tout_msg)
-                    result.set_exception(RPCTimeoutError(tout_msg))
-            timer = Timer(timeout, _abort_request)
-            timer.start()
-        else:
-            timer = None
-
-        future = self._ReturnOrYieldFuture(self, req_id)
-        self._futures[req_id] = future
-        #logger.debug('waiting for future=%r' % future)
-        try:
-            result = future.result()  # block waiting for a reply passed by the io_thread
-        finally:
-            timer and timer.cancel()
-        return result
-    #}
-    def shutdown(self):  #{
+    def shutdown(self):
         """Close the socket and signal the io_thread to exit"""
         self._ready = False
         self._ready_ev.set()
 
         self.logger.debug('signaling the threads to exit')
         self.req_queue.put(None)  # signal the req and io threads to exit
-        self.io_thread.wait()
-        self.req_thread.wait()
+
+        if self.io_thread:
+            self.io_thread.exception()
+
+        if self.req_thread:
+            self.req_thread.exception()
 
         self._ready_ev.clear()
 
@@ -325,10 +266,7 @@ class ThreadingRPCClient(RPCClientBase):  #{
         self.socket.close(0)
         self.req_pub.close(0)
 
-        if not self._ext_pool:
-            self.logger.debug('stopping the pool')
-            self.pool.close()
-            self.pool.stop()
-            self.pool.join()
-    #}
-#}
+        if not self._ext_exec:
+            self.logger.debug('shutting down the executor')
+            self._executor.shutdown(cancel=True)
+

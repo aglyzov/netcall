@@ -15,7 +15,7 @@ To create a simple service:
 
     from netcall import ThreadingRPCService
 
-    echo = TornadoRPCService()
+    echo = ThreadingRPCService()
 
     @echo.task
     def echo(self, s):
@@ -50,11 +50,12 @@ To talk to this service:
 # for tornado versions of the classes import netcall.tornado
 # for gevent versions of the classes import netcall.green
 
-from .base_client  import RPCClientBase
-from .base_service import RPCServiceBase
-from .utils        import logger, RemoteMethod, ThreadPool, get_zmq_classes, detect_green_env
+from .utils        import logger, RemoteMethod, get_zmq_classes, detect_green_env
 from .errors       import RPCError, RemoteRPCError, RPCTimeoutError
 from .serializer   import *
+
+from .base_client  import RPCClientBase
+from .base_service import RPCServiceBase
 
 from .sync         import SyncRPCClient
 from .threading    import ThreadingRPCService, ThreadingRPCClient

@@ -1,4 +1,4 @@
-# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
+# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0
 
 """
 Green version of the RPC client
@@ -22,32 +22,34 @@ Authors:
 # Imports
 #-----------------------------------------------------------------------------
 
+from weakref import WeakValueDictionary
+
 from ..base_client import RPCClientBase
-from ..utils       import get_zmq_classes, detect_green_env, get_green_tools
-from ..errors      import RPCTimeoutError
-from ..futures     import Future, TimeoutError
+from ..concurrency import get_tools
+from ..utils       import get_zmq_classes, detect_green_env
 
 
 #-----------------------------------------------------------------------------
 # RPC Service Proxy
 #-----------------------------------------------------------------------------
 
-class GreenRPCClient(RPCClientBase):  #{
-    """ An asynchronous service proxy whose requests will not block.
-        Uses the Green compatibility layer of pyzmq (zmq.green).
+class GreenRPCClient(RPCClientBase):
+    """ An asynchronous RPC client that sends requests over a DEALER socket.
+        Using green threads for concurrency.
+        Green environment is provided by either Gevent, Eventlet or Greenhouse
+        and can be autodetected.
     """
+    CONCURRENCY = 1024
 
-    def __init__(self, green_env=None, context=None, **kwargs):  #{
+    def __init__(self, green_env=None, context=None, executor=None, **kwargs):
         """
         Parameters
         ==========
         green_env  : None | 'gevent' | 'eventlet' | 'greenhouse'
-        context    : <Context>
-            An existing Context instance, if not passed, green.Context.instance()
-            will be used.
-        serializer : <Serializer>
-            An instance of a Serializer subclass that will be used to serialize
-            and deserialize args, kwargs and the result.
+        context    : optional ZMQ <Context>
+        executor   : optional task <Executor>
+        serializer : optional <Serializer> that will be used to serialize
+                     and deserialize args, kwargs and results
         """
         self.green_env = green_env or detect_green_env() or 'gevent'
 
@@ -58,36 +60,40 @@ class GreenRPCClient(RPCClientBase):  #{
         else:
             assert isinstance(context, Context)
             self.context = context
-            
-        self._green_tools = get_green_tools(env=self.green_env)
-        spawn, _, Event = self._green_tools[:3]
 
-        super(GreenRPCClient, self).__init__(**kwargs)  # base class
+        self._tools    = get_tools(env=self.green_env)
+        self._executor = executor or self._tools.Executor(limit=self.CONCURRENCY)
+        self._ext_exec = bool(executor)
 
-        self._ready_ev = Event()
-        self._exit_ev  = Event()
-        self.greenlet  = spawn(self._reader)
-        self._futures  = {}  # {<msg-id> : <_ReturnOrYieldFuture>}
-    #}
-    def _create_socket(self):  #{
+        super(GreenRPCClient, self).__init__(**kwargs)
+
+        Event = self._tools.Event
+
+        self._ready_ev   = Event()
+        self._exit_ev    = Event()
+        self._recv_task  = self._executor.submit(self._reader)
+        self._futures    = {}                     # {<req_id> : <Future>}
+        self._gen_queues = WeakValueDictionary()  # {<req_id> : <Queue>}
+
+    def _create_socket(self):
         super(GreenRPCClient, self)._create_socket()
-    #}
-    def bind(self, *args, **kwargs):  #{
+
+    def bind(self, *args, **kwargs):
         result = super(GreenRPCClient, self).bind(*args, **kwargs)
         self._ready_ev.set()  # wake up _reader
         return result
-    #}
-    def bind_ports(self, *args, **kwargs):  #{
+
+    def bind_ports(self, *args, **kwargs):
         result = super(GreenRPCClient, self).bind_ports(*args, **kwargs)
         self._ready_ev.set()  # wake up _reader
         return result
-    #}
-    def connect(self, *args, **kwargs):  #{
+
+    def connect(self, *args, **kwargs):
         result = super(GreenRPCClient, self).connect(*args, **kwargs)
         self._ready_ev.set()  # wake up _reader
         return result
-    #}
-    def _reader(self):  #{
+
+    def _reader(self):
         """ Reader greenlet
 
             Waits for a socket to become ready (._ready_ev), then reads incoming replies and
@@ -97,9 +103,9 @@ class GreenRPCClient(RPCClientBase):  #{
         ready_ev = self._ready_ev
         socket   = self.socket
         futures  = self._futures
-        running  = True
+        g_queues = self._gen_queues
 
-        while running:
+        while True:
             ready_ev.wait()  # block until socket is bound/connected
             self._ready_ev.clear()
 
@@ -111,7 +117,7 @@ class GreenRPCClient(RPCClientBase):  #{
                     logger.warning(e)
                     break
 
-                logger.debug('received: %r' % msg_list)
+                logger.debug('received %r', msg_list)
 
                 reply = self._parse_reply(msg_list)
 
@@ -124,38 +130,42 @@ class GreenRPCClient(RPCClientBase):  #{
                 result   = reply['result']
 
                 if msg_type == b'ACK':
-                    #logger.debug('skipping ACK, req_id=%r' % req_id)
+                    #logger.debug('skipping ACK, req_id=%r', req_id)
                     continue
 
-                if msg_type == b'YIELD':
-                    futures_get_fn = futures.get
-                    future_init_fn = self._ReturnOrYieldFuture.init_as_yield
-                else: # For OK and FAIL
-                    futures_get_fn = futures.pop
-                    future_init_fn = self._ReturnOrYieldFuture.init_as_return
+                future = futures.pop(req_id, None)
 
-                future = futures_get_fn(req_id, None)
                 if future is None:
-                    # result is gone, must be a timeout
-                    #logger.debug('async result is gone (timeout?): req_id=%r' % req_id)
-                    continue
-                if not future.is_init():
-                    future_init_fn(future)
-
-                if msg_type in [b'OK', b'YIELD']:
-                    logger.debug('future.set_result(result), req_id=%r' % req_id)
-                    future.set_result(result)
+                    queue = g_queues.get(req_id, None)
+                    if queue is not None:
+                        # existing generator
+                        if msg_type == b'YIELD':
+                            queue.put((result, None))
+                        elif msg_type == b'FAIL':
+                            queue.put((None, result))
                 else:
-                    logger.debug('future.set_exception(result), req_id=%r' % req_id)
-                    future.set_exception(result)
+                    if msg_type == b'OK':
+                        # normal result
+                        future.set_result(result)
+                    elif msg_type == b'FAIL':
+                        # exception
+                        future.set_exception(result)
+                    elif msg_type == b'YIELD':
+                        # new generator
+                        queue = self._tools.Queue(1)
+                        g_queues[req_id] = queue
+                        future.set_result(self._generator(req_id, queue.get))
+
+                queue = None  # IMPORTANT: clean up references so that
+                              #            self._gen_queues empties properly
 
             if self._exit_ev.is_set():
                 logger.debug('_reader received an EXIT signal')
                 break
 
         logger.debug('_reader exited')
-    #}
-    def shutdown(self):  #{
+
+    def shutdown(self):
         """Close the socket and signal the reader greenlet to exit"""
         self.logger.debug('closing the socket')
         self._ready = False
@@ -163,67 +173,14 @@ class GreenRPCClient(RPCClientBase):  #{
         self._ready_ev.set()
         self.socket.close(0)
         self.logger.debug('waiting for the greenlet to exit')
-        self.greenlet.join()
-        self.greenlet = None
+        self._recv_task.exception(timeout=0.3)
+        self._recv_task.cancel()
+        self._recv_task = None
         self._ready_ev.clear()
         self._exit_ev.clear()
-    #}
-    def _get_tools(self):  #{
-        "Returns a tuple (Event, Queue, Future, TimeoutError, Condition)"
-        Event, Condition, Queue = self._green_tools[2:5]
-        return Event, Queue, Future, TimeoutError, Condition
-    #}
-    def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):  #{
-        """
-        Call the remote method with *args and **kwargs.
 
-        Parameters
-        ----------
-        proc_name : <str>   name of the remote procedure to call
-        args      : <tuple> positional arguments of the procedure
-        kwargs    : <dict>  keyword arguments of the procedure
-        ignore    : <bool>  whether to ignore result or wait for it
-        timeout   : <float> | None
-            Number of seconds to wait for a reply.
-            RPCTimeoutError is set as the future result in case of timeout.
-            Set to None, 0 or a negative number to disable.
+        if not self._ext_exec:
+            self.logger.debug('shutting down the executor')
+            self._executor.shutdown(cancel=True)
 
-        Returns
-        -------
-        <object>
-            If the call succeeds, the result of the call will be returned.
-            If the call fails, `RemoteRPCError` will be raised.
-        """
-        if not (timeout is None or isinstance(timeout, (int, float))):
-            raise TypeError("timeout param: <float> or None expected, got %r" % timeout)
 
-        if not self._ready:
-            raise RuntimeError('bind or connect must be called first')
-
-        logger = self.logger
-
-        req_id, msg_list = self._build_request(proc_name, args, kwargs, ignore)
-
-        logger.debug('send: %r' % msg_list)
-        self.socket.send_multipart(msg_list)
-
-        if ignore:
-            return None
-
-        spawn_later = self._green_tools[1]
-
-        if timeout and timeout > 0:
-            def _abort_request():
-                future = self._futures.pop(req_id, None)
-                if future is not None:
-                    tout_msg  = "Request %s timed out after %s sec" % (req_id, timeout)
-                    logger.debug(tout_msg)
-                    future.set_exception(RPCTimeoutError(tout_msg))
-            spawn_later(timeout, _abort_request)
-
-        future = self._ReturnOrYieldFuture(self, req_id)
-        self._futures[req_id] = future
-        logger.debug('waiting for future=%r' % future)
-        return future.result()  # block waiting for a reply passed by ._reader
-    #}
-#}

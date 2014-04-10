@@ -1,10 +1,12 @@
 from eventlet import sleep as green_sleep, spawn
 
-from netcall.green import GreenRPCService, GreenRPCClient
-from netcall.devices import PubService, SubClient
-from netcall.utils import logger, setup_logger
+from netcall.concurrency import get_tools
+from netcall.devices     import PubService, SubClient
+from netcall.green       import GreenRPCService, GreenRPCClient
+from netcall.utils       import logger, setup_logger
 
 setup_logger(logger, level='WARNING')
+_tools = get_tools(env='eventlet')
 
 #service_url = 'tcp://127.0.0.1:5555'
 #service_url = 'ipc:///tmp/echo_generator.service'
@@ -70,7 +72,9 @@ echo_client2.connect(client_url)
 print  'Partial subscription with late joiner'
 echo_client2.start_producing()
 a = spawn(list, echo_client1.yield_list())
-green_sleep(1.5)
+print 'waiting 1.5s...'
+_tools.sleep(1.5)
+print 'done waiting'
 b = spawn(list, echo_client2.yield_list())
 
 print 'client 1: %r' % a.wait()
@@ -79,7 +83,9 @@ print 'client 2: %r' % b.wait()
 print
 print 'Synchronisation between two subscriptions thanks to flags (over RPC)'
 a = spawn(list, echo_client1.yield_list())
-green_sleep(1.5)
+print 'waiting 1.5s...'
+_tools.sleep(1.5)
+print 'done waiting'
 b = spawn(list, echo_client2.yield_list())
 echo_client2.start_producing()
 

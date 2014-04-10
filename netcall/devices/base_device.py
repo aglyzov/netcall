@@ -20,11 +20,12 @@ Authors:
 
 import re
 from collections import namedtuple
-from functools import partial
-from logging import getLogger
+from functools   import partial
+from logging     import getLogger
 
-from ..base  import RPCBase
-from ..utils import detect_green_env, get_zmq_classes, get_green_tools
+from ..base        import RPCBase
+from ..concurrency import get_tools
+from ..utils       import detect_green_env, get_zmq_classes
 
 #-----------------------------------------------------------------------------
 # Base device classes
@@ -44,7 +45,6 @@ class DeviceSocket(RPCBase):
     def __init__(self, socket_type, env=None, context=None, **kwargs):
         env = env or detect_green_env() or 'gevent'
         Context, self.Poller = get_zmq_classes(env)
-        self._tools = get_green_tools(env) # While waiting for get_concurrent_tools() we use greenlets by default
 
         if context is None:
             self.context = Context.instance()
@@ -158,7 +158,7 @@ class BaseDevice(object):
         kwargs['env'] = env
         super(BaseDevice, self).__init__(**kwargs)
         
-        self._tools = get_green_tools(env) # While waiting for get_concurrent_tools() we use greenlets by default
+        self._tools = get_tools(env=env) # While waiting for get_concurrent_tools() we use greenlets by default
         
         for field, socket in zip(self._fields, self):
             bind_func = partial(self.__bind, socket)
@@ -177,7 +177,7 @@ class BaseDevice(object):
         self.greenlets = []
         
     def _run_greenlet(self):
-        spawn = self._tools[0]
+        spawn = self._tools.Executor().submit
         self.running = True
         
         def _loop(handler):

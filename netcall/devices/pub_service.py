@@ -31,6 +31,8 @@ class PubService(BaseDevice, namedtuple('PubService', 'service pub client')):
         self.none_result = self._serializer.serialize_result(None)
         self.ignore = bytes(int(False))
         
+        self._executor = self._tools.Executor()
+        
     def _handle_client_to_service(self, s_service, s_pub, s_client):
         data = s_client.recv_multipart()
         self.logger.debug('received from client: %r' % data)
@@ -51,9 +53,9 @@ class PubService(BaseDevice, namedtuple('PubService', 'service pub client')):
         s_service.send_multipart(data)
         
     def _handle_service_to_client(self, s_service, s_pub, s_client):
-        spawn = self._tools[0]
+        spawn = self._executor.submit
         #spawn_later = self._tools[1]
-        Queue = self._tools[4]
+        Queue = self._tools.Queue
     
         data = s_service.recv_multipart()
         self.logger.debug('receiving from service: %r' % data)
@@ -112,7 +114,7 @@ class PubService(BaseDevice, namedtuple('PubService', 'service pub client')):
                 
     def _yield_consummer(self, s_service, req_id):
         queue = self.known_yields[req_id]
-        data = [b'|', req_id, 'YIELD_SEND'] + self.none_args_kwargs + [self.ignore]
+        data = [b'|', req_id, '_SEND'] + self.none_args_kwargs + [self.ignore]
         while self.running:
             if queue.get():
                 self.logger.debug('sending to service %r' % data)

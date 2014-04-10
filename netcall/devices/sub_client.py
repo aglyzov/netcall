@@ -24,6 +24,8 @@ class SubClient(BaseDevice, namedtuple('SubClient', 'service sub client')):
         self.known_yields = {}
         self.known_topics = {}
         
+        self._executor = self._tools.Executor()
+        
     def _handle_client_to_service(self, s_service, s_sub, s_client):
         data = s_client.recv_multipart()
         self.logger.debug('received from client: %r' % data)
@@ -32,7 +34,7 @@ class SubClient(BaseDevice, namedtuple('SubClient', 'service sub client')):
         req_id = data[boundary+1]
         proc = data[boundary+2]
         
-        if proc.startswith('YIELD') and req_id in self.known_yields:
+        if proc.startswith('_') and req_id in self.known_yields:
             self.known_yields[req_id][1].put(None)
             self.logger.debug('skipping %r/%r' % (req_id, proc))
             return
@@ -41,7 +43,7 @@ class SubClient(BaseDevice, namedtuple('SubClient', 'service sub client')):
         s_service.send_multipart(data)
         
     def _handle_service_to_client(self, s_service, s_sub, s_client):
-        Queue = self._tools[4]
+        Queue = self._tools.Queue
         
         data = s_service.recv_multipart()
         self.logger.debug('receiving from service: %r' % data)
@@ -73,7 +75,7 @@ class SubClient(BaseDevice, namedtuple('SubClient', 'service sub client')):
 
         
     def _handle_sub_to_client(self, s_service, s_sub, s_client):
-        spawn = self._tools[0]
+        spawn = self._executor.submit
         
         data = s_sub.recv_multipart()
         self.logger.debug('receiving from sub %r' % data)

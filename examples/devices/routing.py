@@ -1,13 +1,12 @@
 from random import randint
 
-from gevent import sleep as green_sleep, spawn
-
-from zmq           import ROUTER, DEALER
-from netcall.green import GreenRPCService, GreenRPCClient
-from netcall.utils import get_zmq_classes, get_green_tools, logger, setup_logger
-from netcall.devices import NamespaceRouter
+from netcall.concurrency import get_tools
+from netcall.devices     import NamespaceRouter
+from netcall.green       import GreenRPCService, GreenRPCClient
+from netcall.utils       import logger, setup_logger
 
 setup_logger(logger, level='WARNING')
+_tools = get_tools(env='gevent')
 
 class Echo(object):
     def __init__(self, nb):
@@ -46,7 +45,7 @@ router.bind_client('tcp://127.0.0.1:5555')
 router.bind_service('ipc:///tmp/echo.service')
 router.start()
 
-green_sleep(0.25)
+_tools.sleep(0.25)
 
 # Client
 echo_client = GreenRPCClient(green_env='gevent')

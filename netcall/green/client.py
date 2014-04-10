@@ -215,10 +215,7 @@ class GreenRPCClient(RPCClientBase):
 
         req_id, msg_list = self._build_request(proc_name, args, kwargs, ignore)
 
-        logger = self.logger
-        logger.debug('send: %r' % msg_list)
-
-        self.socket.send_multipart(msg_list)
+        self._send_request(msg_list)
 
         if ignore:
             return None
@@ -228,7 +225,7 @@ class GreenRPCClient(RPCClientBase):
                 future = self._futures.pop(req_id, None)
                 if future is not None:
                     tout_msg  = "Request %s timed out after %s sec" % (req_id, timeout)
-                    logger.debug(tout_msg)
+                    self.logger.debug(tout_msg)
                     future.set_exception(RPCTimeoutError(tout_msg))
             timer = self._tools.Timer(timeout, _abort_request)
             timer.start()

@@ -113,7 +113,7 @@ if __name__ == '__main__':
     math2_proxy .start()
 
     while True:
-        echo_proxy  .join(0.1)
-        math1_proxy .join(0.1)
-        math2_proxy .join(0.1)
+        echo_proxy  .join(0.25)
+        math1_proxy .join(0.25)
+        math2_proxy .join(0.25)
 

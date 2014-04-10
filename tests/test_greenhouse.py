@@ -27,7 +27,7 @@ class GreenhouseBase(BaseCase):
         self.client.shutdown()
         self.service.shutdown()
         self.context.term()
-        self.executor.shutdown()
+        self.executor.shutdown(cancel=True)
 
         super(GreenhouseBase, self).tearDown()
 

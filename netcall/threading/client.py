@@ -243,7 +243,7 @@ class ThreadingRPCClient(RPCClientBase):
                         # new generator
                         queue = self._tools.Queue(1)
                         g_queues[req_id] = queue
-                        future.set_result(self._generator(req_id, queue))
+                        future.set_result(self._generator(req_id, queue.get))
 
         # -- cleanup --
         req_sub.close(0)

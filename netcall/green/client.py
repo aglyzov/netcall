@@ -118,7 +118,7 @@ class GreenRPCClient(RPCClientBase):
                     logger.warning(e)
                     break
 
-                logger.debug('received: %r' % msg_list)
+                logger.debug('received %r' % msg_list)
 
                 reply = self._parse_reply(msg_list)
 
@@ -144,9 +144,6 @@ class GreenRPCClient(RPCClientBase):
                             queue.put((result, None))
                         elif msg_type == b'FAIL':
                             queue.put((None, result))
-                    del queue  # IMPORTANT: clean up references so that
-                               #            self._gen_queues empties properly
-                    continue
                 else:
                     if msg_type == b'OK':
                         # normal result
@@ -160,7 +157,10 @@ class GreenRPCClient(RPCClientBase):
                         # new generator
                         queue = self._tools.Queue(1)
                         g_queues[req_id] = queue
-                        future.set_result(self._generator(req_id, queue))
+                        future.set_result(self._generator(req_id, queue.get))
+
+                queue = None  # IMPORTANT: clean up references so that
+                              #            self._gen_queues empties properly
 
             if self._exit_ev.is_set():
                 logger.debug('_reader received an EXIT signal')

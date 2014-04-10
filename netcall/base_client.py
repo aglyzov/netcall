@@ -121,7 +121,7 @@ class RPCClientBase(RPCBase):
             result = result,
         )
 
-    def _generator(self, req_id, value_queue):
+    def _generator(self, req_id, get_val_exc):
         """ Mirrors a service generator on a client side
         """
         #logger = self.logger
@@ -135,7 +135,7 @@ class RPCClientBase(RPCBase):
         _send_cmd('_SEND', None)
 
         while True:
-            val, exc = value_queue.get()
+            val, exc = get_val_exc()
             if exc is not None:
                 raise exc
             try:

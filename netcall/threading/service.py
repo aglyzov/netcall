@@ -25,7 +25,7 @@ from random import randint
 import zmq
 
 from ..base_service import RPCServiceBase
-from ..concurrency  import get_tools
+from ..concurrency  import get_tools, TimeoutError
 from ..utils        import get_zmq_classes
 
 
@@ -37,7 +37,7 @@ class ThreadingRPCService(RPCServiceBase):
     """ An asynchronous RPC service that serves requests over a ROUTER socket.
         Using the standard Python threading API for concurrency.
     """
-    CONCURRENCY = 1024
+    CONCURRENCY = 128
 
     def __init__(self, context=None, executor=None, **kwargs):  #{
         """
@@ -229,12 +229,14 @@ class ThreadingRPCService(RPCServiceBase):
 
             Simply waits for self.res_thread and self.io_thread to exit
         """
-        res, io = self.res_thread, self.io_thread
-        if res is not None and io is not None:
+        if self.res_thread is None and self.io_thread is None:
             self.start()
 
-        while res.running() and io.running():
-            res.wait(0.3)
-            io.wait(0.3)
+        while True:
+            try:
+                self._executor.wait(timeout=1)
+                break
+            except TimeoutError:
+                pass
     #}
 

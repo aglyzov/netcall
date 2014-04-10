@@ -29,7 +29,6 @@ import zmq
 from ..base_client import RPCClientBase
 from ..concurrency import get_tools
 from ..utils       import get_zmq_classes
-from ..errors      import RPCTimeoutError
 
 
 #-----------------------------------------------------------------------------
@@ -273,59 +272,4 @@ class ThreadingRPCClient(RPCClientBase):
         if not self._ext_exec:
             self.logger.debug('shutting down the executor')
             self._executor.shutdown(cancel=True)
-
-    def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):
-        """
-        Call the remote method with *args and **kwargs.
-
-        Parameters
-        ----------
-        proc_name : <str>   name of the remote procedure to call
-        args      : <tuple> positional arguments of the procedure
-        kwargs    : <dict>  keyword arguments of the procedure
-        ignore    : <bool>  whether to ignore result or wait for it
-        timeout   : <float> | None
-            Number of seconds to wait for a reply.
-            RPCTimeoutError is set as the future result in case of timeout.
-            Set to None, 0 or a negative number to disable.
-
-        Returns
-        -------
-        <object>
-            If the call succeeds, the result of the call will be returned.
-            If the call fails, `RemoteRPCError` will be raised.
-        """
-        if not (timeout is None or isinstance(timeout, (int, float))):
-            raise TypeError("timeout param: <float> or None expected, got %r" % timeout)
-
-        if not self._ready:
-            raise RuntimeError('bind or connect must be called first')
-
-        req_id, msg_list = self._build_request(proc_name, args, kwargs, ignore)
-
-        self._send_request(msg_list)
-
-        if ignore:
-            return None
-
-        if timeout and timeout > 0:
-            def _abort_request():
-                future = self._futures.pop(req_id, None)
-                if future is not None:
-                    tout_msg  = "Request %s timed out after %s sec" % (req_id, timeout)
-                    self.logger.debug(tout_msg)
-                    future.set_exception(RPCTimeoutError(tout_msg))
-            timer = self._tools.Timer(timeout, _abort_request)
-            timer.start()
-        else:
-            timer = None
-
-        future = self._tools.Future()
-        self._futures[req_id] = future
-        try:
-            result = future.result()  # block waiting for a reply passed by _reader
-        finally:
-            timer and timer.cancel()
-
-        return result
 

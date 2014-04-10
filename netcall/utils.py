@@ -121,7 +121,7 @@ def green_device(inp, out, env=None):  #{
     from .concurrency import get_tools
 
     env   = env or detect_green_env() or 'gevent'
-    spawn = get_tools(env=env)[0]
+    spawn = get_tools(env=env).Executor().submit
 
     def _inp_to_out():
         while True:
@@ -134,8 +134,8 @@ def green_device(inp, out, env=None):  #{
     i2o = spawn(_inp_to_out)
     o2i = spawn(_out_to_inp)
 
-    i2o.join()
-    o2i.join()
+    i2o.result()
+    o2i.result()
 #}
 
 def get_zmq_classes(env='auto'):  #{

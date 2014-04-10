@@ -1,10 +1,13 @@
-# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
+# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0
 
 
-class RPCError(Exception):  #{
+from .concurrency.futures import TimeoutError as RPCTimeoutError
+
+
+class RPCError(Exception):
     pass
-#}
-class RemoteRPCError(RPCError):  #{
+
+class RemoteRPCError(RPCError):
     """Error raised elsewhere"""
     ename = None
     evalue = None
@@ -25,7 +28,4 @@ class RemoteRPCError(RPCError):  #{
             return self.traceback
         else:
             return sig
-#}
-class RPCTimeoutError(RPCError):  #{
-    pass
-#}
+

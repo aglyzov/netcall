@@ -22,7 +22,6 @@ Authors:
 # Imports
 #-----------------------------------------------------------------------------
 
-from abc     import abstractmethod
 from sys     import exc_info
 from random  import randint
 from logging import getLogger
@@ -186,24 +185,7 @@ class RPCClientBase(RPCBase):
         if ignore:
             return None
 
-        if timeout and timeout > 0:
-            def _abort_request():
-                future = self._futures.pop(req_id, None)
-                if future is not None:
-                    tout_msg  = "Request %s timed out after %s sec" % (req_id, timeout)
-                    self.logger.debug(tout_msg)
-                    future.set_exception(RPCTimeoutError(tout_msg))
-            timer = self._tools.Timer(timeout, _abort_request)
-            timer.start()
-        else:
-            timer = None
-
         future = self._tools.Future()
         self._futures[req_id] = future
-        try:
-            result = future.result()  # block waiting for a reply passed by _reader
-        finally:
-            timer and timer.cancel()
-
-        return result
+        return future.result(timeout=timeout)  # block waiting for a reply passed by _reader
 

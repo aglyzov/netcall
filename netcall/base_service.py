@@ -1,4 +1,4 @@
-# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
+# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0
 
 """
 Base RPC service class
@@ -41,17 +41,18 @@ from .base import RPCBase
 # RPC Service base
 #-----------------------------------------------------------------------------
 
-class RPCServiceBase(RPCBase):  #{
+class RPCServiceBase(RPCBase):
 
-    _RESERVED = [
+    _GEN_PROTOCOL = set(('_SEND', '_THROW', '_CLOSE'))
+    _RESERVED     = set((
         'register', 'register_object', 'proc', 'task',
         'start', 'stop', 'serve', 'shutdown', 'reset',
         'connect', 'bind', 'bind_ports',
-        '_SEND', '_THROW', '_CLOSE'
-    ]
+    )) | _GEN_PROTOCOL
+
     logger = getLogger('netcall.service')
 
-    def __init__(self, *args, **kwargs):  #{
+    def __init__(self, *args, **kwargs):
         """
         Parameters
         ==========
@@ -67,13 +68,13 @@ class RPCServiceBase(RPCBase):  #{
 
         self.service_id = service_id \
                        or b'%s/%s' % (self.__class__.__name__, self.identity)
-        self.procedures = {}  # {<name> : <callable>}
-        self.yield_send_queues = {}  # {<req_id> : <Queue>}
+        self.procedures = {}  # {<name>   : <callable>}
+        self.generators = {}  # {<req_id> : <Generator>}
 
         # register extra class methods as service procedures
         self.register_object(self, restricted=self._RESERVED)
-    #}
-    def _parse_request(self, msg_list):  #{
+
+    def _parse_request(self, msg_list):
         """
         Parse a request
         (should not raise an exception)
@@ -105,7 +106,7 @@ class RPCServiceBase(RPCBase):  #{
         boundary = msg_list.index(b'|')
         name     = msg_list[boundary+2]
 
-        if name in ['_SEND', '_THROW', '_CLOSE']:
+        if name in self._GEN_PROTOCOL:
             proc = name
         else:
             proc = self.procedures.get(name, None)
@@ -129,8 +130,8 @@ class RPCServiceBase(RPCBase):  #{
             ignore = ignore,
             error  = error,
         )
-    #}
-    def _build_reply(self, request, typ, data):  #{
+
+    def _build_reply(self, request, typ, data):
         """Build a reply message for status and data.
 
         Parameters
@@ -145,34 +146,34 @@ class RPCServiceBase(RPCBase):  #{
             [b'|', request['req_id'], typ],
             data,
         ))
-    #}
 
-    def _send_reply(self, reply):  #{
+
+    def _send_reply(self, reply):
         """ Send a multipart reply to the ZMQ socket.
 
             Notice: reply is a list produced by self._build_reply()
         """
         self.logger.debug('sending %r' % reply)
         self.socket.send_multipart(reply)
-    #}
-    def _send_ack(self, request):  #{
+
+    def _send_ack(self, request):
         "Send an ACK notification"
         reply = self._build_reply(request, b'ACK', [self.service_id])
         self._send_reply(reply)
-    #}
-    def _send_ok(self, request, result):  #{
+
+    def _send_ok(self, request, result):
         "Send an OK reply"
         data_list = self._serializer.serialize_result(result)
         reply = self._build_reply(request, b'OK', data_list)
         self._send_reply(reply)
-    #}
-    def _send_yield(self, request, result):  #{
+
+    def _send_yield(self, request, result):
         "Send a YIELD reply"
         data_list = self._serializer.serialize_result(result)
         reply = self._build_reply(request, b'YIELD', data_list)
         self._send_reply(reply)
-    #}
-    def _send_fail(self, request):  #{
+
+    def _send_fail(self, request):
         "Send a FAIL reply"
         # take the current exception implicitly
         etype, evalue, tb = exc_info()
@@ -184,9 +185,9 @@ class RPCServiceBase(RPCBase):  #{
         data_list = [jsonapi.dumps(error_dict)]
         reply = self._build_reply(request, b'FAIL', data_list)
         self._send_reply(reply)
-    #}
 
-    def _handle_request(self, msg_list):  #{
+
+    def _handle_request(self, msg_list):
         """
         Handle an incoming request.
 
@@ -234,21 +235,19 @@ class RPCServiceBase(RPCBase):  #{
         self._send_ack(req)
 
         ignore = req['ignore']
+        proc   = req['proc']
 
         try:
             # raise any parsing errors here
             if req['error']:
                 raise req['error']
 
-            if req['proc'] in ['_SEND', '_THROW', '_CLOSE']:
-                if req['req_id'] not in self.yield_send_queues:
-                    raise ValueError('req_id does not refer to a known generator')
-
-                self.yield_send_queues[req['req_id']].put((req['proc'], req['args']))
+            if proc in self._GEN_PROTOCOL:
+                self._handle_gen_protocol(req)
                 return
             else:
                 # call procedure
-                res = req['proc'](*req['args'], **req['kwargs'])
+                res = proc(*req['args'], **req['kwargs'])
         except Exception:
             not ignore and self._send_fail(req)
         else:
@@ -256,62 +255,48 @@ class RPCServiceBase(RPCBase):  #{
                 return
 
             if isinstance(res, GeneratorType):
-                self._handle_yield(req, res)
+                self.generators[req['req_id']] = res
+                self._send_yield(req, None)
             else:
                 self._send_ok(req, res)
-    #}
 
-    def _handle_yield(self, req, res):  #{
-        logger = self.logger
+    def _handle_gen_protocol(self, req):
+        """ Handles generator commands (_SEND, _THROW, _CLOSE).
+            May raise all sorts of exceptions.
+        """
         req_id = req['req_id']
-        Queue, Empty = self._tools.Queue, self._tools.Empty
-        logger.debug('Adding reference to yield %s', req_id)
-        input_queue = self.yield_send_queues[req_id] = Queue(1)
+        gen    = self.generators.get(req_id, None)
+        if gen is None:
+            raise ValueError('no corresponding generator (req_id=%r)' % req_id)
 
-        self._send_yield(req, None)
-        gene = res
+        cmd  = req['proc']
+        args = req['args']
 
         try:
-            while True:
-                while True:  # TODO: running
-                    try:
-                        proc, args = input_queue.get(True, 0.5)
-                        break
-                    except Empty:
-                        pass
+            if cmd == '_SEND':
+                res = gen.send(args)
+                self._send_yield(req, res)
 
-                #if not self.running:  TODO: running
-                #    # Shutdown has been called. Clean-up.
-                #    gene.close()
-                #    return
+            elif cmd == '_THROW':
+                ex_class = getattr(exceptions, args[0], Exception)
+                res = gen.throw(ex_class, args[1])
+                self._send_yield(req, res)
 
-                if proc == '_SEND':
-                    res = gene.send(args)
-                    self._send_yield(req, res)
+            else:
+                res = gen.close()
+                self._send_ok(req, res)
+                self.generators.pop(req_id, None)
 
-                elif proc == '_THROW':
-                    ex_class = getattr(exceptions, args[0], Exception)
-                    eargs = args[:2]
-                    eargs[0] = ex_class
-                    res = gene.throw(*eargs)
-                    self._send_yield(req, res)
+        except (GeneratorExit, StopIteration):
+            self.generators.pop(req_id, None)
+            raise
 
-                else:
-                    gene.close()
-                    self._send_ok(req, None)
-                    break
-        except:
-            self._send_fail(req)
-        finally:
-            logger.debug('Removing reference to yield %s', req_id)
-            del self.yield_send_queues[req_id]
-    #}
 
     #-------------------------------------------------------------------------
     # Public API
     #-------------------------------------------------------------------------
 
-    def register(self, func=None, name=None):  #{
+    def register(self, func=None, name=None):
         """ A decorator to register a callable as a service task.
 
             Examples:
@@ -344,12 +329,12 @@ class RPCServiceBase(RPCBase):  #{
             self.procedures[name] = func
 
         return func
-    #}
+
 
     task = register  # alias
     proc = register  # alias
 
-    def register_object(self, obj, restricted=[], namespace=''):  #{
+    def register_object(self, obj, restricted=[], namespace=''):
         """
         Register public functions of a given object as service tasks.
         Give the possibility to not register some restricted functions.
@@ -391,23 +376,23 @@ class RPCServiceBase(RPCBase):  #{
             except: continue
             if callable(proc):
                 self.procedures['.'.join([namespace, name]).lstrip('.')] = proc
-    #}
+
 
     @abstractmethod
-    def start(self):  #{
+    def start(self):
         """ Start the service (non-blocking) """
         pass
-    #}
+
 
     @abstractmethod
-    def stop(self):  #{
+    def stop(self):
         """ Stop the service (non-blocking) """
         pass
-    #}
+
 
     @abstractmethod
-    def serve(self):  #{
+    def serve(self):
         """ Serve RPC requests (blocking) """
         pass
-    #}
-#}
+
+

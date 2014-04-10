@@ -204,7 +204,7 @@ class RPCCallsMixIn(object):
         gen = self.client.yielder()
         self.assertIsInstance(gen, GeneratorType)
         self.assertEqual(list(gen), fixture)
-        self.assertDictEqual(self.service.yield_send_queues, {})
+        self.assertDictEqual(self.service.generators, {})
 
     def test_generator_none(self):
         @self.service.register
@@ -213,7 +213,7 @@ class RPCCallsMixIn(object):
                 yield
 
         self.assertEqual(list(self.client.yielder()), [None] * 10)
-        self.assertDictEqual(self.service.yield_send_queues, {})
+        self.assertDictEqual(self.service.generators, {})
 
     def test_generator_next(self):
         @self.service.register
@@ -225,7 +225,7 @@ class RPCCallsMixIn(object):
         self.assertEqual(gen.next(), 1)
         self.assertEqual(next(gen), 1)
         gen = None
-        self.assertDictEqual(self.service.yield_send_queues, {})
+        self.assertDictEqual(self.service.generators, {})
 
     def test_generator_send(self):
         @self.service.register
@@ -237,7 +237,7 @@ class RPCCallsMixIn(object):
         self.assertEqual(gen.send(None), 1)
         self.assertEqual(gen.send(2), 2)
         gen = None
-        self.assertDictEqual(self.service.yield_send_queues, {})
+        self.assertDictEqual(self.service.generators, {})
 
     def test_generator_throw(self):
         @self.service.register
@@ -256,7 +256,7 @@ class RPCCallsMixIn(object):
         with self.assertRaisesRegexp(TypeError, 'spam'):
             raise e
         gen = None
-        self.assertDictEqual(self.service.yield_send_queues, {})
+        self.assertDictEqual(self.service.generators, {})
 
     def test_generator_close(self):
         closed = [False]
@@ -274,7 +274,7 @@ class RPCCallsMixIn(object):
         self.assertTrue(closed)
         with self.assertRaises(StopIteration):
             next(gen)
-        self.assertDictEqual(self.service.yield_send_queues, {})
+        self.assertDictEqual(self.service.generators, {})
 
 
 class ToyObject(object):

@@ -274,7 +274,25 @@ class RPCCallsMixIn(object):
         self.assertTrue(closed)
         with self.assertRaises(StopIteration):
             next(gen)
-        self.assertDictEqual(self.service.generators, {})
+
+        self.assertFalse(self.service.generators)
+
+    def test_generator_cleanup(self):
+        @self.service.register
+        def repeat(value=None):
+            while True: yield value
+
+        gen = self.client.repeat(1)
+        next(gen)
+
+        del gen  # this implicitly sends _CLOSE to the service
+                 # cleaning up there as well
+
+        self.tools.sleep(0.2)  # allows GC to collect the client generator
+                               # and its Queue
+
+        self.assertFalse(self.service.generators)
+        self.assertFalse(self.client._gen_queues)
 
 
 class ToyObject(object):

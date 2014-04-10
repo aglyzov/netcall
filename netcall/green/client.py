@@ -22,6 +22,8 @@ Authors:
 # Imports
 #-----------------------------------------------------------------------------
 
+from weakref import WeakValueDictionary
+
 from ..base_client import RPCClientBase
 from ..concurrency import get_tools
 from ..utils       import get_zmq_classes, detect_green_env
@@ -68,10 +70,11 @@ class GreenRPCClient(RPCClientBase):
 
         Event = self._tools.Event
 
-        self._ready_ev  = Event()
-        self._exit_ev   = Event()
-        self._recv_task = self._executor.submit(self._reader)
-        self._futures   = {}  # {<msg-id> : <_ReturnOrYieldFuture>}
+        self._ready_ev   = Event()
+        self._exit_ev    = Event()
+        self._recv_task  = self._executor.submit(self._reader)
+        self._futures    = {}                     # {<req_id> : <Future>}
+        self._gen_queues = WeakValueDictionary()  # {<req_id> : <Queue>}
 
     def _create_socket(self):
         super(GreenRPCClient, self)._create_socket()
@@ -101,6 +104,7 @@ class GreenRPCClient(RPCClientBase):
         ready_ev = self._ready_ev
         socket   = self.socket
         futures  = self._futures
+        g_queues = self._gen_queues
 
         while True:
             ready_ev.wait()  # block until socket is bound/connected
@@ -130,30 +134,33 @@ class GreenRPCClient(RPCClientBase):
                     #logger.debug('skipping ACK, req_id=%r' % req_id)
                     continue
 
-                if msg_type == b'YIELD':
-                    get_future  = futures.get
-                    init_future = self._ReturnOrYieldFuture.init_as_yield
-                else:
-                    # OK or FAIL
-                    get_future  = futures.pop
-                    init_future = self._ReturnOrYieldFuture.init_as_return
-
-                future = get_future(req_id, None)
+                future = futures.pop(req_id, None)
 
                 if future is None:
-                    # result is gone, must be a timeout
-                    #logger.debug('async result is gone (timeout?): req_id=%r' % req_id)
+                    queue = g_queues.get(req_id, None)
+                    if queue is not None:
+                        # existing generator
+                        if msg_type == b'YIELD':
+                            queue.put((result, None))
+                        elif msg_type == b'FAIL':
+                            queue.put((None, result))
+                    del queue  # IMPORTANT: clean up references so that
+                               #            self._gen_queues empties properly
                     continue
-
-                if not future.is_init():
-                    init_future(future)
-
-                if msg_type in (b'OK', b'YIELD'):
-                    logger.debug('future.set_result(result), req_id=%r' % req_id)
-                    future.set_result(result)
                 else:
-                    logger.debug('future.set_exception(result), req_id=%r' % req_id)
-                    future.set_exception(result)
+                    if msg_type == b'OK':
+                        # normal result
+                        #logger.debug('future.set_result(result), req_id=%r' % req_id)
+                        future.set_result(result)
+                    elif msg_type == b'FAIL':
+                        # exception
+                        #logger.debug('future.set_exception(result), req_id=%r' % req_id)
+                        future.set_exception(result)
+                    elif msg_type == b'YIELD':
+                        # new generator
+                        queue = self._tools.Queue(1)
+                        g_queues[req_id] = queue
+                        future.set_result(self._generator(req_id, queue))
 
             if self._exit_ev.is_set():
                 logger.debug('_reader received an EXIT signal')
@@ -228,12 +235,12 @@ class GreenRPCClient(RPCClientBase):
         else:
             timer = None
 
-        future = self._ReturnOrYieldFuture(self, req_id)
+        future = self._tools.Future()
         self._futures[req_id] = future
-        #logger.debug('waiting for future=%r' % future)
         try:
-            result = future.result()  # block waiting for a reply passed by _read_task
+            result = future.result()  # block waiting for a reply passed by _reader
         finally:
             timer and timer.cancel()
+
         return result
 

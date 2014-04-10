@@ -121,42 +121,32 @@ class RPCClientBase(RPCBase):
             result = result,
         )
 
-    def _yielder(self, recv_generator, req_id):
-        """Implements the yield-generator workflow.
-        This function is made to be reused by synchronous subclasses.
-        For asynchronous subclasses, use _ReturnOrYieldFuture class.
-        recv_generator should be a generator yielding tuples of (_, data).
-        That is, the first element of the tuple is ignored.
-        recv_generator should NOT yield the data from the very first YIELD reply.
+    def _generator(self, req_id, value_queue):
+        """ Mirrors a service generator on a client side
         """
-        logger = self.logger
+        #logger = self.logger
 
-        def _send(method, args):
-            _, msg_list = self._build_request(method, args, None, False, req_id=req_id)
-            logger.debug('send: %r' % msg_list)
+        def _send_cmd(cmd, args):
+            _, msg_list = self._build_request(
+                cmd, args, None, ignore=False, req_id=req_id
+            )
             self._send_request(msg_list)
 
-        try:
-            _send('_SEND', None)
-            while True:
-                _, obj = next(recv_generator)
-                try:
-                    to_send = yield obj
-                except Exception, e:
-                    logger.debug('generator.throw()')
-                    etype, evalue, _ = exc_info()
-                    _send('_THROW', [str(etype.__name__), str(evalue)])
-                else:
-                    _send('_SEND', to_send)
-        except StopIteration:
-            return
-        except GeneratorExit, e:
-            logger.debug('generator.close()')
-            _send('_CLOSE', None)
-            next(recv_generator)
-            raise e
-        finally:
-            logger.debug('_yielder exits (req_id=%s)', req_id)
+        _send_cmd('_SEND', None)
+
+        while True:
+            val, exc = value_queue.get()
+            if exc is not None:
+                raise exc
+            try:
+                res = yield val
+            except GeneratorExit:
+                _send_cmd('_CLOSE', None)
+            except:
+                etype, evalue, _ = exc_info()
+                _send_cmd('_THROW', [etype.__name__, evalue])
+            else:
+                _send_cmd('_SEND', res)
 
     def __getattr__(self, name):
         return RemoteMethod(self, name)
@@ -181,65 +171,4 @@ class RPCClientBase(RPCBase):
             If the call fails, `RemoteRPCError` will be raised.
         """
         pass
-
-    class _ReturnOrYieldFuture(object):
-
-        def __init__(self, client, req_id):
-            tools = client._tools
-
-            self.is_initialized   = tools.Event()
-            self.return_or_except = tools.Future()
-            self.yield_queue      = tools.Queue(1)
-            self.client           = client
-            self.req_id           = req_id
-
-        def init_as_return(self):
-            assert(not self.is_init())
-            self.is_yield = False
-            self.is_initialized.set()
-
-        def init_as_yield(self):
-            assert(not self.is_init())
-            self.is_yield = True
-            self.is_initialized.set()
-
-        def is_init(self):
-            return self.is_initialized.is_set()
-
-        def set_result(self, obj):
-            assert(self.is_init())
-            if self.is_yield:
-                self.yield_queue.put(obj)
-            else:
-                self.return_or_except.set_result(obj)
-
-        def set_exception(self, ex):
-            assert(self.is_init())
-            self.return_or_except.set_exception(ex)
-            if self.is_yield:
-                self.yield_queue.put(None)
-
-        def _try_except(self):
-            try:
-                self.return_or_except.result(timeout=0)
-            except TimeoutError:
-                pass
-
-        def result(self):
-            self.is_initialized.wait()
-
-            if not self.is_yield:
-                return self.return_or_except.result()
-
-            else:
-                self._try_except()
-                self.yield_queue.get()
-
-                def recv_yielder():
-                    while True:
-                        obj = self.yield_queue.get()
-                        self._try_except()
-                        yield None, obj
-
-                return self.client._yielder(recv_yielder(), self.req_id)
 

@@ -173,14 +173,14 @@ class RPCServiceBase(RPCBase):
         reply = self._build_reply(request, b'YIELD', data_list)
         self._send_reply(reply)
 
-    def _send_fail(self, request):
+    def _send_fail(self, request, with_tb=True):
         "Send a FAIL reply"
         # take the current exception implicitly
         etype, evalue, tb = exc_info()
         error_dict = {
-            'ename'     : str(etype.__name__),
+            'ename'     : etype.__name__,
             'evalue'    : str(evalue),
-            'traceback' : format_exc(tb)
+            'traceback' : with_tb and format_exc(tb) or None
         }
         data_list = [jsonapi.dumps(error_dict)]
         reply = self._build_reply(request, b'FAIL', data_list)
@@ -284,12 +284,11 @@ class RPCServiceBase(RPCBase):
 
             else:
                 res = gen.close()
-                self._send_ok(req, res)
-                self.generators.pop(req_id, None)
+                raise GeneratorExit
 
         except (GeneratorExit, StopIteration):
             self.generators.pop(req_id, None)
-            raise
+            self._send_fail(req, with_tb=False)
 
 
     #-------------------------------------------------------------------------

@@ -27,6 +27,9 @@ class TaskFutureAdapter(FutureBase):
         except Exception, e:
             return e
 
+    def cancel(self):
+        return self._task.cancel()
+
     def cancelled(self):
         return self._task.cancelled
 
@@ -77,9 +80,10 @@ class ThreadPoolExecutor(ExecutorBase):
         if pool is None:
             return
         if cancel:
-            pool.kill()
-        else:
+            pool.close()
             pool.stop()
+        else:
+            pool.close()
         if wait:
             pool.join()
 

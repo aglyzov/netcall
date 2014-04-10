@@ -1,4 +1,4 @@
-# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
+# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0
 
 from time import time
 
@@ -13,10 +13,10 @@ from ..utils       import get_zmq_classes
 # Synchronous RPC Client
 #-----------------------------------------------------------------------------
 
-class SyncRPCClient(RPCClientBase):  #{
+class SyncRPCClient(RPCClientBase):
     """A synchronous RPC client (blocking, not thread-safe)"""
 
-    def __init__(self, context=None, **kwargs):  #{
+    def __init__(self, context=None, **kwargs):
         """
         Parameters
         ==========
@@ -35,15 +35,12 @@ class SyncRPCClient(RPCClientBase):  #{
             assert isinstance(context, Context)
             self.context = context
 
+        self._gen_queues = None  # for compatibility with tests
+
         super(SyncRPCClient, self).__init__(**kwargs)
-    #}
-    
-    def _get_tools(self):  #{
-        "Returns a tuple (Event, Queue, Future, TimeoutError, Condition)"
-        pass # Not needed in this implementation
-    #}
-    
-    def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):  #{
+
+
+    def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):
         """
         Call the remote method with *args and **kwargs
         (may raise exception)
@@ -72,7 +69,7 @@ class SyncRPCClient(RPCClientBase):  #{
 
         req_id, msg_list = self._build_request(proc_name, args, kwargs, ignore)
 
-        self.socket.send_multipart(msg_list)
+        self._send_request(msg_list)
 
         if timeout and timeout > 0:
             poller = zmq.Poller()
@@ -84,16 +81,15 @@ class SyncRPCClient(RPCClientBase):  #{
                 timeout_ms = int((deadline_t - time())*1000)  # in milliseconds
                 #logger.debug('polling with timeout_ms=%s' % timeout_ms)
                 if timeout_ms > 0 and poller.poll(timeout_ms):
-                    msg = self.socket.recv_multipart()
-                    return msg
+                    return self.socket.recv_multipart()
                 else:
                     raise RPCTimeoutError("Request %s timed out after %s sec" % (req_id, timeout))
         else:
             recv_multipart = self.socket.recv_multipart
 
-        def recv_yielder():  #{
+        def get_result_pair(recv=recv_multipart, first=False):
             while True:
-                msg_list = recv_multipart()
+                msg_list = recv()
                 self.logger.debug('received %r' % msg_list)
                 reply = self._parse_reply(msg_list)
 
@@ -101,28 +97,32 @@ class SyncRPCClient(RPCClientBase):  #{
                 or reply['req_id'] != req_id:
                       continue
 
-                if reply['type'] == b'ACK':
+                msg_type = reply['type']
+
+                if msg_type == b'ACK':
                     if ignore:
-                        yield b'OK', None
-                        return
+                        return None, None
                     else:
                         continue
 
-                if reply['type'] == b'FAIL':
-                    raise reply['result']
+                result = reply['result']
+                recv = self.socket.recv_multipart
 
-                yield reply['type'], reply['result']
-                if reply['type'] == b'OK':
-                    return
-        #}
+                if msg_type == b'OK':
+                    return result, None
 
-        recv_gen = recv_yielder()
-        reply_type, result = next(recv_gen)
+                elif msg_type == b'FAIL':
+                    return None, result
 
-        if reply_type == b'OK':
-            return result
+                elif msg_type == b'YIELD':
+                    if first:
+                        return self._generator(req_id, get_result_pair), None
+                    else:
+                        return result, None
+
+        res, exc = get_result_pair(first=True)
+        if exc is None:
+            return res
         else:
-            return self._yielder(recv_gen, req_id)
-    #}
-#}
+            raise exc
 

@@ -85,7 +85,7 @@ class EventletExecutor(ExecutorBase):
         if pool is None:
             return
         if cancel:
-            for gt in pool.coroutines_running:
+            for gt in pool.coroutines_running.copy():
                 gt.kill()
         if wait:
             pool.waitall()

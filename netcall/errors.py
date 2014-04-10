@@ -9,13 +9,13 @@ class RPCError(Exception):
 
 class RemoteRPCError(RPCError):
     """Error raised elsewhere"""
-    ename = None
-    evalue = None
+    ename     = None
+    evalue    = None
     traceback = None
 
     def __init__(self, ename, evalue, tb):
-        self.ename = ename
-        self.evalue = evalue
+        self.ename     = ename
+        self.evalue    = evalue
         self.traceback = tb
         self.args = (ename, evalue)
 

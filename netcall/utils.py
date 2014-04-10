@@ -1,7 +1,7 @@
-# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
+# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0
 
 from __future__  import absolute_import
-from collections import namedtuple
+#from collections import namedtuple
 
 from sys     import stderr, modules
 from imp     import new_module
@@ -12,14 +12,14 @@ from logging import getLogger
 logger = getLogger('netcall')  # generic netcall logger
 _gevent_cache = {}
 
-ZMQClasses       = namedtuple('ZMQClasses', 'Context Poller')
+#ZMQClasses = namedtuple('ZMQClasses', 'Context Poller')
 
 
 #-----------------------------------------------------------------------------
 # Utilies
 #-----------------------------------------------------------------------------
 
-def setup_logger(logger=None, level='DEBUG', format=None, stream=stderr):  #{
+def setup_logger(logger=None, level='DEBUG', format=None, stream=stderr):
     """ A utility function to setup a basic logging handler for a given logger
     """
     from logging import StreamHandler, Formatter, getLogger, getLevelName
@@ -43,9 +43,9 @@ def setup_logger(logger=None, level='DEBUG', format=None, stream=stderr):  #{
     logger.addHandler(handler)
 
     return logger
-#}
 
-def import_module(name, cache=modules):  #{
+
+def import_module(name, cache=modules):
     """Execute a module's code without importing it
 
        Returns the resulting top level namespace dictionary
@@ -65,8 +65,8 @@ def import_module(name, cache=modules):  #{
     exec code in module.__dict__
 
     return module
-#}
-def gevent_patched_module(name, items=None, cache=_gevent_cache):  #{
+
+def gevent_patched_module(name, items=None, cache=_gevent_cache):
     """ Returns a gevent monkey-patched module (bypassing sys.modules)
     """
     if name in cache:
@@ -83,8 +83,8 @@ def gevent_patched_module(name, items=None, cache=_gevent_cache):  #{
         setattr(module, attr, getattr(gevent_module, attr))
 
     return module
-#}
-def gevent_patched_threading():  #{
+
+def gevent_patched_threading():
     """ Returns a gevent monkey-patched `threading` module
     """
     threading = gevent_patched_module('threading')
@@ -92,9 +92,9 @@ def gevent_patched_threading():  #{
     threading.Event = Event
 
     return threading
-#}
 
-def detect_green_env():  #{
+
+def detect_green_env():
     """ Detects a monkey-patched green thread environment and
         returns either one of these:
 
@@ -113,8 +113,8 @@ def detect_green_env():  #{
         return 'eventlet'
     else:
         return None
-#}
-def green_device(inp, out, env=None):  #{
+
+def green_device(inp, out, env=None):
     """ Runs a greenlet-compatible ZMQ device (message forwarder).
         Starts two green threads, one for each direction.
     """
@@ -136,9 +136,9 @@ def green_device(inp, out, env=None):  #{
 
     i2o.result()
     o2i.result()
-#}
 
-def get_zmq_classes(env='auto'):  #{
+
+def get_zmq_classes(env='auto'):
     """ Returns ZMQ Context and Poller classes that are
         compatible with the current environment.
 
@@ -170,23 +170,23 @@ def get_zmq_classes(env='auto'):  #{
         raise ValueError('unsupported environment %r' % env)
 
     return Context, Poller
-#}
 
-class RemoteMethodBase(object):  #{
+
+class RemoteMethodBase(object):
     """A remote method class to enable a nicer call syntax."""
 
     def __init__(self, client, method):
         self.client = client
         self.method = method
-#}
-class RemoteMethod(RemoteMethodBase):  #{
 
-    def __call__(self, *args, **kwargs):  #{
+class RemoteMethod(RemoteMethodBase):
+
+    def __call__(self, *args, **kwargs):
         return self.client.call(self.method, args, kwargs)
-    #}
 
-    def __getattr__(self, name):  #{
+
+    def __getattr__(self, name):
         return RemoteMethod(self.client, '.'.join([self.method, name]))
-    #}
-#}
+
+
 

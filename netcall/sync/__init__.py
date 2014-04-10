@@ -79,7 +79,7 @@ class SyncRPCClient(RPCClientBase):
 
             def recv_multipart():
                 timeout_ms = int((deadline_t - time())*1000)  # in milliseconds
-                #logger.debug('polling with timeout_ms=%s' % timeout_ms)
+                #logger.debug('polling with timeout_ms=%s', timeout_ms)
                 if timeout_ms > 0 and poller.poll(timeout_ms):
                     return self.socket.recv_multipart()
                 else:
@@ -88,9 +88,10 @@ class SyncRPCClient(RPCClientBase):
             recv_multipart = self.socket.recv_multipart
 
         def get_result_pair(recv=recv_multipart, first=False):
+            logger = self.logger
             while True:
                 msg_list = recv()
-                self.logger.debug('received %r' % msg_list)
+                logger.debug('received %r', msg_list)
                 reply = self._parse_reply(msg_list)
 
                 if reply is None \

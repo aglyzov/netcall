@@ -126,7 +126,7 @@ class ThreadingRPCClient(RPCClientBase):
 
             while True:
                 request = rcv_request()
-                #logger.debug('req_thread received %r' % request)
+                logger.debug('received %r', request)
                 if request is None:
                     logger.debug('req_thread received an EXIT signal')
                     fwd_request([''])  # pass the EXIT signal to the io_thread
@@ -190,7 +190,6 @@ class ThreadingRPCClient(RPCClientBase):
                                 logger.debug('io_thread received an EXIT signal')
                                 running = False
                                 break
-                            logger.debug('io_thread sending %r' % request)
                             srv_sock.send_multipart(request)
 
                     if reply_list is None:
@@ -200,7 +199,7 @@ class ThreadingRPCClient(RPCClientBase):
                     logger.warning(e)
                     break
 
-                logger.debug('io_thread received %r' % reply_list)
+                logger.debug('received %r', reply_list)
 
                 reply = self._parse_reply(reply_list)
 
@@ -213,7 +212,7 @@ class ThreadingRPCClient(RPCClientBase):
                 result   = reply['result']
 
                 if msg_type == b'ACK':
-                    #logger.debug('skipping ACK, req_id=%r' % req_id)
+                    #logger.debug('skipping ACK, req_id=%r', req_id)
                     continue
 
                 future = futures.pop(req_id, None)
@@ -232,11 +231,9 @@ class ThreadingRPCClient(RPCClientBase):
                 else:
                     if msg_type == b'OK':
                         # normal result
-                        #logger.debug('future.set_result(result), req_id=%r' % req_id)
                         future.set_result(result)
                     elif msg_type == b'FAIL':
                         # exception
-                        #logger.debug('future.set_exception(result), req_id=%r' % req_id)
                         future.set_exception(result)
                     elif msg_type == b'YIELD':
                         # new generator

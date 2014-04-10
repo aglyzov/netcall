@@ -158,18 +158,16 @@ class ThreadingRPCService(RPCServiceBase):
                     for socket, _ in poll():
                         if socket is task_sock:
                             request = task_sock.recv_multipart()
-                            logger.debug('io_thread received %r' % request)
+                            logger.debug('received %r', request)
                             # handle request in a thread-pool
                             spawn(handle_request, request)
                         elif socket is res_sub:
                             result = res_sub.recv_multipart()
-                            #logger.debug('received a result: %r' % result)
                             if not result[0]:
                                 logger.debug('io_thread received an EXIT signal')
                                 running = False
                                 break
                             else:
-                                logger.debug('io_thread sending %r' % result)
                                 task_sock.send_multipart(result)
             except Exception, e:
                 logger.error(e, exc_info=True)

@@ -117,7 +117,7 @@ class GreenRPCClient(RPCClientBase):
                     logger.warning(e)
                     break
 
-                logger.debug('received %r' % msg_list)
+                logger.debug('received %r', msg_list)
 
                 reply = self._parse_reply(msg_list)
 
@@ -130,7 +130,7 @@ class GreenRPCClient(RPCClientBase):
                 result   = reply['result']
 
                 if msg_type == b'ACK':
-                    #logger.debug('skipping ACK, req_id=%r' % req_id)
+                    #logger.debug('skipping ACK, req_id=%r', req_id)
                     continue
 
                 future = futures.pop(req_id, None)
@@ -146,11 +146,9 @@ class GreenRPCClient(RPCClientBase):
                 else:
                     if msg_type == b'OK':
                         # normal result
-                        #logger.debug('future.set_result(result), req_id=%r' % req_id)
                         future.set_result(result)
                     elif msg_type == b'FAIL':
                         # exception
-                        #logger.debug('future.set_exception(result), req_id=%r' % req_id)
                         future.set_exception(result)
                     elif msg_type == b'YIELD':
                         # new generator

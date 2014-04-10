@@ -95,7 +95,7 @@ class GreenRPCService(RPCServiceBase):
                     break
                 spawn(handle_request, request)
 
-            logger.debug('receive_reply exited')
+            logger.debug('main_loop exited')
 
         self._task = spawn(main_loop)
 

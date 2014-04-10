@@ -30,9 +30,8 @@ import zmq
 from zmq.utils import jsonapi
 
 from .base   import RPCBase
-from .errors import RemoteRPCError, RPCError, RPCTimeoutError
+from .errors import RemoteRPCError, RPCError
 from .utils  import RemoteMethod
-from .concurrency.futures import TimeoutError
 
 
 #-----------------------------------------------------------------------------
@@ -60,7 +59,7 @@ class RPCClientBase(RPCBase):
         return req_id, msg_list
 
     def _send_request(self, request):
-        self.logger.debug('sending %r' % request)
+        self.logger.debug('sending %r', request)
         self.socket.send_multipart(request)
 
     def _parse_reply(self, msg_list):
@@ -82,7 +81,7 @@ class RPCClientBase(RPCBase):
         logger = self.logger
 
         if len(msg_list) < 4 or msg_list[0] != b'|':
-            logger.error('bad reply: %r' % msg_list)
+            logger.error('bad reply %r', msg_list)
             return None
 
         msg_type = msg_list[2]

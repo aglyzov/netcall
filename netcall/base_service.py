@@ -96,7 +96,7 @@ class RPCServiceBase(RPCBase):
         logger = self.logger
 
         if len(msg_list) < 6 or b'|' not in msg_list:
-            logger.error('bad request: %r' % msg_list)
+            logger.error('bad request %r', msg_list)
             return None
 
         error    = None
@@ -153,7 +153,7 @@ class RPCServiceBase(RPCBase):
 
             Notice: reply is a list produced by self._build_reply()
         """
-        self.logger.debug('sending %r' % reply)
+        self.logger.debug('sending %r', reply)
         self.socket.send_multipart(reply)
 
     def _send_ack(self, request):

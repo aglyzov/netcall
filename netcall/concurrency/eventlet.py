@@ -57,7 +57,7 @@ class EventletExecutor(ExecutorBase):
     """
     def __init__(self, limit=None):
         self._limit = limit or 100000
-        self._pool  = GreenPool(size=limit)
+        self._pool  = GreenPool(size=self._limit)
 
     def submit(self, func, *args, **kw):
         pool = self._pool

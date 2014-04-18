@@ -149,7 +149,7 @@ class RPCClientBase(RPCBase):
     def __getattr__(self, name):
         return RemoteMethod(self, name)
 
-    def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):
+    def call(self, proc_name, args=[], kwargs={}, result='sync', timeout=None):
         """
         Call the remote method with *args and **kwargs
         (may raise an exception)
@@ -159,7 +159,7 @@ class RPCClientBase(RPCBase):
         proc_name : <bytes> name of the remote procedure to call
         args      : <tuple> positional arguments of the remote procedure
         kwargs    : <dict>  keyword arguments of the remote procedure
-        ignore    : <bool>  whether to ignore result or wait for it
+        result    : 'sync' | 'async' | 'ignore'
         timeout   : <float> | None
             Number of seconds to wait for a reply.
             RPCTimeoutError is raised in case of timeout.
@@ -167,16 +167,24 @@ class RPCClientBase(RPCBase):
 
         Returns
         -------
-        result : <object>
-            If the call succeeds, the result of the call will be returned.
-            If the call fails, `RemoteRPCError` will be raised.
+        <result:object> if result is 'sync'
+        <Future>        if result is 'async'
+        None            if result is 'ignore'
+
+        If remote call fails:
+        - raises <RemoteRPCError>                 if result is 'sync'
+        - sets <RemoteRPCError> into the <Future> if result is 'async'
         """
+        assert result in ('sync', 'async', 'ignore'), \
+            'expected any of "sync", "async", "ignore" -- got %r' % result
+
         if not (timeout is None or isinstance(timeout, (int, float))):
             raise TypeError("timeout param: <float> or None expected, got %r" % timeout)
 
         if not self._ready:
             raise RuntimeError('bind or connect must be called first')
 
+        ignore = result == 'ignore'
         req_id, msg_list = self._build_request(proc_name, args, kwargs, ignore)
 
         self._send_request(msg_list)
@@ -186,5 +194,11 @@ class RPCClientBase(RPCBase):
 
         future = self._tools.Future()
         self._futures[req_id] = future
-        return future.result(timeout=timeout)  # block waiting for a reply passed by _reader
+
+        if result == 'sync':
+            # block waiting for a reply passed by _reader
+            return future.result(timeout=timeout)
+        else:
+            # async
+            return future
 

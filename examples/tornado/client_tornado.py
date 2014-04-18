@@ -65,7 +65,7 @@ if __name__ == '__main__':
 
     spawn(printer, echo, 'echo', ["Hi there"])
     spawn(printer, echo, 'error')
-    spawn(printer, echo, 'error', ignore=True)
+    spawn(printer, echo, 'error', result='ignore')
 
     # Sleep for 2.3 sec but timeout after 1.1 sec.
     spawn(printer, echo, 'sleep', [2.3], timeout=1.1)

@@ -42,7 +42,7 @@ if __name__ == '__main__':
         print "Got an expected timeout:"
         print repr(e)
 
-    echo.call('error', ignore=True)
+    echo.call('error', result='ignore')
 
     math = SyncRPCClient()
     # By connecting to two instances, requests are load balanced.

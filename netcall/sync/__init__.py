@@ -39,8 +39,7 @@ class SyncRPCClient(RPCClientBase):
 
         super(SyncRPCClient, self).__init__(**kwargs)
 
-
-    def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):
+    def call(self, proc_name, args=[], kwargs={}, result='sync', timeout=None):
         """
         Call the remote method with *args and **kwargs
         (may raise exception)
@@ -50,6 +49,7 @@ class SyncRPCClient(RPCClientBase):
         proc_name : <bytes> name of the remote procedure to call
         args      : <tuple> positional arguments of the remote procedure
         kwargs    : <dict>  keyword arguments of the remote procedure
+        result    : 'sync' | 'ignore'
         timeout   : <float> | None
             Number of seconds to wait for a reply.
             RPCTimeoutError will be raised if no reply is received in time.
@@ -57,16 +57,22 @@ class SyncRPCClient(RPCClientBase):
 
         Returns
         -------
-        <object>
-            If the call succeeds, the result of the call will be returned.
-            If the call fails, `RemoteRPCError` will be raised.
+        <result:object> if result is 'sync'
+        None            if result is 'ignore'
+
+        If remote call fails:
+        - raises <RemoteRPCError> if result is 'sync'
         """
+        assert result in ('sync', 'ignore'), \
+            'expected any of "sync", "ignore" -- got %r' % result
+
         if not (timeout is None or isinstance(timeout, (int, float))):
             raise TypeError("timeout param: <float> or None expected, got %r" % timeout)
 
         if not self._ready:
             raise RuntimeError('bind or connect must be called first')
 
+        ignore = result == 'ignore'
         req_id, msg_list = self._build_request(proc_name, args, kwargs, ignore)
 
         self._send_request(msg_list)

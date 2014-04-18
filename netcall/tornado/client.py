@@ -106,7 +106,7 @@ class TornadoRPCClient(RPCClientBase):  #{
     def __getattr__(self, name):  #{
         return AsyncRemoteMethod(self, name)
     #}
-    def call(self, proc_name, args=[], kwargs={}, ignore=False, timeout=None):  #{
+    def call(self, proc_name, args=[], kwargs={}, result='async', timeout=None):  #{
         """
         Call the remote method with *args and **kwargs.
 
@@ -121,11 +121,21 @@ class TornadoRPCClient(RPCClientBase):  #{
             RPCTimeoutError is set as the future result in case of timeout.
             Set to None, 0 or a negative number to disable.
 
-        Returns None or a <Future> representing a remote call result
+        Returns
+        -------
+        <Future> if result is 'async'
+        None     if result is 'ignore'
+
+        If remote call fails:
+        - sets <RemoteRPCError> into the <Future> if result is 'async'
         """
+        assert result in ('async', 'ignore'), \
+            'expected any of "async", "ignore" -- got %r' % result
+
         if not (timeout is None or isinstance(timeout, (int, float))):
             raise TypeError("timeout param: <float> or None expected, got %r" % timeout)
 
+        ignore = result == 'ignore'
         req_id, msg_list = self._build_request(proc_name, args, kwargs, ignore)
         self.socket.send_multipart(msg_list)
 

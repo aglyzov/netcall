@@ -59,7 +59,7 @@ if __name__ == '__main__':
         print
 
     print 'Ignoring result... ',
-    echo.call('error', ignore=True)
+    echo.call('error', result='ignore')
     print 'OK\n'
 
     spawn(printer, "[echo] Sleeping for 2 seconds...", echo.sleep, 2.0)

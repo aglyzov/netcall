@@ -269,12 +269,12 @@ class RPCCallsMixIn(object):
 
         gen = self.client.echo(1)
         next(gen)
-        
+
         gen.close()
-        
+
         self.tools.sleep(0.2)  # allows GC to collect the client generator
                                # and its Queue
-                               
+
         self.assertTrue(closed[0])
         with self.assertRaises(StopIteration):
             next(gen)
@@ -299,7 +299,7 @@ class RPCCallsMixIn(object):
 
         self.tools.sleep(0.2)  # allows GC to collect the client generator
                                # and its Queue
-                               
+
         self.assertTrue(closed[0])
         self.assertFalse(self.service.generators)
         self.assertFalse(self.client._gen_queues)

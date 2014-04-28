@@ -232,6 +232,10 @@ class RPCServiceBase(RPCBase):
         req = self._parse_request(msg_list)
         if req is None:
             return
+        self.logger.debug(
+            'CALL: %s, args=%s, kwargs=%s, ignore=%s',
+            req['proc'], req['args'], req['kwargs'], req['ignore']
+        )
         self._send_ack(req)
 
         ignore = req['ignore']
@@ -248,7 +252,8 @@ class RPCServiceBase(RPCBase):
             else:
                 # call procedure
                 res = proc(*req['args'], **req['kwargs'])
-        except Exception:
+        except Exception, e:
+            self.logger.error(e, exc_info=True)
             not ignore and self._send_fail(req)
         else:
             if ignore:

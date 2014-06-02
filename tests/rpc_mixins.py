@@ -1,6 +1,7 @@
 # vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0
 
-from types import GeneratorType
+from unittest import skip
+from types    import GeneratorType
 
 from netcall import RemoteRPCError, RPCTimeoutError, RPCServiceBase
 
@@ -148,6 +149,20 @@ class RPCCallsMixIn(object):
 
         with self.assertRaises(RPCTimeoutError):
             self.client.call('fixture', timeout=0.1)
+
+    @skip('TODO')
+    def test_ignore_missing_service(self):
+        fail_url = self.extra[0]
+
+        self.client.connect(fail_url)
+        self.assertTrue(fail_url in self.client.connected)
+
+        self.service.register(lambda: 123, name='fixture')
+
+        call = lambda: self.client.call('fixture', timeout=0.5)
+
+        self.assertEqual(call(), 123)  # ask existing service
+        self.assertEqual(call(), 123)  # skip missing service
 
 
     def test_object(self):

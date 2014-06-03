@@ -63,7 +63,10 @@ class ThreadPoolExecutor(ExecutorBase):
         pool = self._pool
         if pool is None:
             return
-        queue = pool._queue
+        if hasattr(pool, '_context'):  # Pebble >= 2.6
+            queue = pool._context.queue
+        else:
+            queue = pool._queue
         queue.all_tasks_done.acquire()
         try:
             if queue.unfinished_tasks > 0:

@@ -65,9 +65,19 @@ class ThreadingRPCService(RPCServiceBase):
         self.io_thread  = None
         self.res_thread = None
 
+        if executor:
+            if hasattr(executor, '_limit'):
+                limit = executor._limit
+            elif hasattr(executor, '_max_workers'):
+                limit = executor._max_workers
+            else:
+                limit = None
+        else:
+            limit = self.CONCURRENCY
+
         # result drainage
         self._sync_ev  = self._tools.Event()
-        self.res_queue = self._tools.Queue(maxsize=self._executor._limit)
+        self.res_queue = self._tools.Queue(maxsize=limit)
         self.res_pub   = self.context.socket(zmq.PUB)
         self.res_addr  = 'inproc://%s-%s' % (
             self.__class__.__name__,

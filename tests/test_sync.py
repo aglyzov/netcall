@@ -18,7 +18,7 @@ class SyncBase(BaseCase):
 
         self.tools    = get_tools(env)
         self.context  = Context()
-        self.executor = self.tools.Executor(24)
+        self.executor = self.tools.Executor(12)
         self.client   = SyncRPCClient(context=self.context)
         self.service  = ThreadingRPCService(context=self.context, executor=self.executor)
 

@@ -17,7 +17,9 @@ class ThreadingBase(BaseCase):
 
         self.tools    = get_tools(env)
         self.context  = Context()
-        self.executor = self.tools.Executor(24)
+        self.executor = self.tools.Executor(12)
+        #from concurrent.futures import ThreadPoolExecutor
+        #self.executor = ThreadPoolExecutor(12)
         self.client   = ThreadingRPCClient(context=self.context, executor=self.executor)
         self.service  = ThreadingRPCService(context=self.context, executor=self.executor)
 
@@ -28,6 +30,7 @@ class ThreadingBase(BaseCase):
         self.service.shutdown()
         self.context.term()
         self.executor.shutdown(cancel=True)
+        #self.executor.shutdown()
 
         super(ThreadingBase, self).tearDown()
 

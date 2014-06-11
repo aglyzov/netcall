@@ -67,6 +67,7 @@ class ThreadingRPCClient(RPCClientBase):
         Event = self._tools.Event
 
         self._ready_ev   = Event()
+        self._exit_ev    = Event()
         self._futures    = {}                     # {<req_id> : <Future>}
         self._gen_queues = WeakValueDictionary()  # {<req_id> : <Queue>}
 
@@ -174,8 +175,8 @@ class ThreadingRPCClient(RPCClientBase):
             ready_ev.wait()  # block until socket is bound/connected
             self._ready_ev.clear()
 
-            if not self._ready:
-                break  # shutdown was called before connect/bind
+            #if not self._ready:
+            #    break  # shutdown was called before connect/bind
 
             while self._ready:
                 try:
@@ -241,6 +242,10 @@ class ThreadingRPCClient(RPCClientBase):
                         g_queues[req_id] = queue
                         future.set_result(self._generator(req_id, queue.get))
 
+            if self._exit_ev.is_set():
+                logger.debug('io_thread received an EXIT signal')
+                break
+
         # -- cleanup --
         req_sub.close(0)
 
@@ -249,6 +254,7 @@ class ThreadingRPCClient(RPCClientBase):
     def shutdown(self):
         """Close the socket and signal the io_thread to exit"""
         self._ready = False
+        self._exit_ev.set()
         self._ready_ev.set()
 
         self.logger.debug('signaling the threads to exit')
@@ -261,6 +267,7 @@ class ThreadingRPCClient(RPCClientBase):
             self.req_thread.exception()
 
         self._ready_ev.clear()
+        self._exit_ev.clear()
 
         self.logger.debug('closing the sockets')
         self.socket.close(0)

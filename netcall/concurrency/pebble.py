@@ -1,6 +1,10 @@
 from __future__  import absolute_import
 
-from pebble import Task, ThreadPool, TimeoutError as PebbleTimeout
+from pebble import Task, TimeoutError as PebbleTimeout
+try:
+    from pebble.thread import Pool as ThreadPool
+except ImportError:
+    from pebble import ThreadPool
 
 from .base    import FutureBase, ExecutorBase
 from .futures import TimeoutError

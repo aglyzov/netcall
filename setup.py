@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name = "netcall",
-    version = "0.3.9",
+    version = "0.3.10",
     packages = find_packages(),
 
     install_requires = ['pyzmq', 'pebble'],

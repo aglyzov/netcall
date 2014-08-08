@@ -73,7 +73,7 @@ class ThreadingRPCClient(RPCClientBase):
 
         # request drainage
         self._sync_ev  = Event()
-        self.req_queue = Queue(maxsize=self.pool._workers)
+        self.req_queue = Queue(maxsize=getattr(self._executor, '_limit', self.CONCURRENCY))
         self.req_pub   = self.context.socket(zmq.PUB)
         self.req_addr  = 'inproc://%s-%s' % (
             self.__class__.__name__,

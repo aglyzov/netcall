@@ -181,9 +181,9 @@ class ThreadingRPCService(RPCServiceBase):
                                 task_sock.send_multipart(result)
             except Exception, e:
                 logger.error(e, exc_info=True)
-
-            # -- cleanup --
-            res_sub.close(0)
+            finally:
+                # -- cleanup --
+                res_sub.close(0)
 
             logger.debug('io_thread exited')
         #}

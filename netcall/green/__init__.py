@@ -1,5 +1,5 @@
 """
-Gevent versions of RPC service and client
+Gevent versions of RPC client, service and load-balancer
 
 Authors:
 
@@ -50,6 +50,7 @@ from ..utils        import RemoteMethod
 from ..errors       import RPCError, RemoteRPCError, RPCTimeoutError
 from ..serializer   import *
 
-from .service import GreenRPCService
-from .client  import GreenRPCClient
+from .client   import GreenRPCClient
+from .service  import GreenRPCService
+from .balancer import GreenRPCLoadBalancer
 

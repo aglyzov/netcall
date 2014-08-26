@@ -1,4 +1,4 @@
-# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0 fdm=marker fmr=#{,#}
+# vim: fileencoding=utf-8 et ts=4 sts=4 sw=4 tw=0
 """
 A base class for RPC services and proxies.
 
@@ -21,13 +21,16 @@ Authors:
 # Imports
 #-----------------------------------------------------------------------------
 
-from abc    import ABCMeta, abstractmethod
-from random import randint
+from abc     import ABCMeta, abstractmethod
+from random  import randint, shuffle
+from logging import getLogger
 
 import zmq
 
-from .serializer import PickleSerializer
-from .utils      import logger
+from .utils       import logger, detect_green_env, get_zmq_classes
+from .serializer  import PickleSerializer
+from .datastruct  import priority_dict
+from .concurrency import get_tools
 
 
 #-----------------------------------------------------------------------------
@@ -170,3 +173,256 @@ class RPCBase(object):  #{
         return port
     #}
 #}
+
+
+class RPCLoadBalancerBase(object):
+    """ RPC Load Balancer base class.
+
+        It is a smart ZMQ device with the ROUTER sockets on both sides.
+        It can be plugged in between an RPC client and RPC services to
+        achieve a _fair_ load balancing based on the total number of
+        running tasks in each connected service.
+
+        This device replaces the simplistic round-robin routing that is
+        built into the ZMQ DEALER socket. The round-robin approach is not
+        suited RPC because it makes for an uneven work spread among the
+        connected services.
+
+        Moreover the peer service discovery is done by a supplied function
+        `discovery_func` every `interval` seconds.
+
+        As a bonus such an intermediary quickly recognizes dead or
+        disconnected peers.
+    """
+    __metaclass__ = ABCMeta
+
+    logger = getLogger('netcall.balancer')
+
+
+    def __init__(self, discover_func, interval=30, context=None, executor=None, bind_url=None):
+        """ Parameters
+            ----------
+            discover_func - <callable> that returns a <dict> {<url>:<identity>} for active services
+            interval      - (opt) <float> number of seconds to wait between service discoveries
+            context       - (opt) ZMQ <Context> for sockets
+            executor      - (opt) <Executor> for threads/greenlets
+            bind_addr     - (opt) <str> URL address for the client side ZMQ ROUTER socket
+        """
+        self.discover_func = discover_func
+        self.interval      = interval
+
+        Context, _ = get_zmq_classes()  # auto detect green env
+
+        if context is None:
+            self.context = Context.instance()
+        else:
+            assert isinstance(context, Context)
+            self.context = context
+
+        self.green_env = detect_green_env()
+        self.tools     = get_tools(env=self.green_env)  # <netcall.concurrency.ConcurrencyTools>
+        self.executor  = executor or self.tools.Executor(3)
+
+        self._ext_executor = executor is not None
+
+        # shared objects for tracking running tasks (protected with _lock)
+        self.addr_set     = set()            # set of connected service addresses
+        self.wid2addr_map = {}               # {<worker_id> : <worker_addr>}
+        self.wid2nrun_map = priority_dict()  # {<worker_id> : <n_running>}
+        self._lock        = self.tools.Lock()
+        self._exit_ev     = self.tools.Event()
+
+        # client side socket
+        self.inp_sock = self.context.socket(zmq.ROUTER)
+        self.inp_addr = bind_url or 'inproc://%s-%s' % (
+            self.__class__.__name__,
+            b'%08x' % randint(0, 0xFFFFFFFF)
+        )
+        self.inp_sock.bind(self.inp_addr)
+
+        # worker side socket
+        self.out_sock = self.context.socket(zmq.ROUTER)
+        self.out_sock.ROUTER_MANDATORY = 1  # fail explicitly if route_id is unknown
+
+    def _update_connections(self, fresh_addrs, stale_addrs):
+        """ Updates connections to the services
+        """
+        with self._lock:
+            for addr in stale_addrs:
+                self.out_sock.disconnect(addr)
+
+            for addr in fresh_addrs:
+                self.out_sock.connect(addr)
+
+    def _peer_refresher(self):
+        """ Refresher thread discovers active RPC services every `self.interval` secs
+            and makes sure `self.out_sock` is connected accordingly.
+        """
+        exit_ev = self._exit_ev
+        lock    = self._lock
+        logger  = self.logger
+
+        addr_set     = self.addr_set
+        wid2addr_map = self.wid2addr_map
+        wid2nrun_map = self.wid2nrun_map
+
+        while not exit_ev.is_set():
+            logger.debug('discovering active services')
+            url2wid_map = self.discover_func()
+            logger.debug('found %s services', len(url2wid_map))
+
+            addrs = set(url2wid_map)
+
+            fresh_addrs = addrs - addr_set
+            stale_addrs = addr_set - addrs
+
+            if fresh_addrs or stale_addrs:
+                fresh_wids = []
+
+                with lock:
+                    for addr in fresh_addrs:
+                        #logger.debug(' + %-20s (new)', addr)
+                        addr_set.add(addr)
+                        wid = url2wid_map[addr]
+                        wid2addr_map[wid] = addr
+                        fresh_wids.append(wid)
+
+                    for addr in stale_addrs:
+                        #logger.debug(' - %-20s (old)', addr)
+                        addr_set.discard(addr)
+                        wid = url2wid_map[addr]
+                        wid2addr_map.pop(wid, None)
+                        wid2nrun_map.pop(wid, None)
+
+                self._update_connections(fresh_addrs, stale_addrs)
+
+                if fresh_wids:
+                    # wait a bit to make sure sockets are connected
+                    exit_ev.wait(0.33)
+                    # to make wid2nrun_map.smallest() non-deterministic on different machines
+                    shuffle(fresh_wids)
+                    # now expose fresh ids to the balancer
+                    with lock:
+                        wid2nrun_map.update((wid,0) for wid in fresh_wids)
+
+            if addrs:
+                exit_ev.wait(self.interval)
+            else:
+                logger.warning('no workers were found')
+                exit_ev.wait(3)
+
+        logger.debug('thread exited')
+
+    def pick_worker(self):
+        """ Returns <worker_id> for the least used worker
+            or None if there are no workers
+        """
+        with self._lock:
+            if self.wid2nrun_map:
+                return self.wid2nrun_map.smallest()
+            else:
+                return None
+
+    def send_answer(self, answer):
+        """ Sends an answer to the client
+        """
+        wid2nrun_map = self.wid2nrun_map
+
+        wid = answer[0]
+        idx = answer.index(b'|')
+        typ = answer[idx+2]
+
+        if typ in (b'OK', b'FAIL'):
+            with self._lock:
+                # decrement the number of running tasks for this worker
+                wid2nrun_map[wid] = max(0, wid2nrun_map.get(wid, 1) - 1)
+
+        # we skip the first identity -- it's a <service_id> added by our out_sock just now.
+        # the next identity should be <client_id> for it was set by our inp_sock
+        # on the request -- thus a necessary routing is already in place.
+        self.inp_sock.send_multipart(answer[1:])
+
+    def send_request(self, request):
+        """ Sends a request to the least loaded connected service
+        """
+        wid2addr_map = self.wid2addr_map
+        wid2nrun_map = self.wid2nrun_map
+        lock         = self._lock
+        exit_ev      = self._exit_ev
+        logger       = self.logger
+        pick_worker  = self.pick_worker
+        to_service   = self.out_sock
+
+        idx = request.index(b'|')
+        try:    ignore = bool(int(request[idx+5]))
+        except: ignore = True
+
+        # send loop
+        while not exit_ev.is_set():
+            wid = pick_worker()
+            if wid is None:
+                # there are no workers, let's wait for the refresher to add some
+                exit_ev.wait(0.33)
+                if self.inp_sock.closed or self.out_sock.closed:
+                    logger.warning('socked was closed while waited for workers')
+                    break # stop sending to allow the receiver loop break
+                continue  # re-try sending
+
+            try:
+                # prepending worker_id we picked to explicitly route the request
+                to_service.send_multipart([wid] + request)
+            except Exception, err:
+                logger.warning('disabling worker %s (id:%s): %s', wid2addr_map.get(wid), wid, err)
+                with lock:
+                    wid2nrun_map.pop(wid, None)
+                    wid2addr_map.pop(wid, None)
+                continue  # repeat with some other worker
+
+            if not ignore:
+                with lock:
+                    # increment the number of running tasks for this worker
+                    wid2nrun_map[wid] = wid2nrun_map.get(wid, 0) + 1
+
+            # successfully passed the request to a service, break the send loop
+            break
+
+    def _close_sockets(self, linger=0):
+        self.inp_sock.close(linger)
+        self.out_sock.close(linger)
+
+    def shutdown(self):
+        logger = self.logger
+
+        # set the exit event for the threads/greenlets
+        logger.debug('setting exit_ev for the threads')
+        self._exit_ev.set()
+
+        # send QUIT signal to the threads/greenlets
+        logger.debug('sending a QUIT signal to the threads')
+
+        # client side
+        exiter1 = self.context.socket(zmq.DEALER)
+        exiter1.IDENTITY = b'QUIT'
+        exiter1.connect(self.inp_addr)
+        exiter1.send(b'')
+
+        # service side
+        exiter2 = self.context.socket(zmq.DEALER)
+        exiter2.IDENTITY = b'QUIT'
+        addr   = 'inproc://exiter-%08x' % randint(0, 0xFFFFFFFF)
+        exiter2.bind(addr)
+        self.out_sock.connect(addr)
+        exiter2.send(b'')
+
+        # shutdown the executor
+        if not self._ext_executor:
+            logger.debug('shutting down the executor')
+            self.executor.shutdown()
+
+        # close ZMQ sockets
+        self.logger.debug('closing ZMQ sockets')
+        exiter1.close(0)
+        exiter2.close(0)
+        self._close_sockets(0)
+
+        # we never destroy the ZMQ context here because we did not create it

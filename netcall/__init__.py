@@ -58,5 +58,5 @@ from .base_client  import RPCClientBase
 from .base_service import RPCServiceBase
 
 from .sync         import SyncRPCClient
-from .threading    import ThreadingRPCService, ThreadingRPCClient
+from .threading    import ThreadingRPCService, ThreadingRPCClient, ThreadingRPCLoadBalancer
 

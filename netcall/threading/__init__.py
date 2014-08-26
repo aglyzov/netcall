@@ -1,5 +1,5 @@
 """
-RPC service and client classes using the standard Python threading API.
+RPC client, service and load-balancer classes using the standard Python threading API.
 
 Authors
 -------
@@ -50,6 +50,7 @@ from ..utils        import logger, RemoteMethod
 from ..errors       import RPCError, RemoteRPCError, RPCTimeoutError
 from ..serializer   import *
 
-from .service import ThreadingRPCService
-from .client  import ThreadingRPCClient
+from .client   import ThreadingRPCClient
+from .service  import ThreadingRPCService
+from .balancer import ThreadingRPCLoadBalancer
 

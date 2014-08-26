@@ -32,15 +32,17 @@ def setup_logger(logger=None, level='DEBUG', format=None, stream=stderr):
     if isinstance(level, basestring):
         level  = getLevelName(level)
 
+    logger.setLevel(level)
+
     if format is None:
         format = "%(asctime)s.%(msecs)d:%(process)s/%(threadName)s:%(levelname)s:%(name)s:%(funcName)s:%(message)s"
 
-    handler   = StreamHandler(stream)
-    formatter = Formatter(format, datefmt="%H:%M:%S")
-    handler.setLevel(level)
-    handler.setFormatter(formatter)
-    logger.setLevel(level)
-    logger.addHandler(handler)
+    if not logger.handlers:
+        handler   = StreamHandler(stream)
+        formatter = Formatter(format, datefmt="%H:%M:%S")
+        handler.setLevel(level)
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
     return logger
 

@@ -37,7 +37,7 @@ from .concurrency import get_tools
 # RPC base
 #-----------------------------------------------------------------------------
 
-class RPCBase(object):  #{
+class RPCBase(object):
     __metaclass__ = ABCMeta
 
     logger = logger
@@ -172,7 +172,6 @@ class RPCBase(object):  #{
 
         return port
     #}
-#}
 
 
 class RPCLoadBalancerBase(object):
@@ -197,7 +196,6 @@ class RPCLoadBalancerBase(object):
     __metaclass__ = ABCMeta
 
     logger = getLogger('netcall.balancer')
-
 
     def __init__(self, discover_func, interval=30, context=None, executor=None, bind_url=None):
         """ Parameters
@@ -226,11 +224,14 @@ class RPCLoadBalancerBase(object):
         self._ext_executor = executor is not None
 
         # shared objects for tracking running tasks (protected with _lock)
-        self.addr_set     = set()            # set of connected service addresses
-        self.wid2addr_map = {}               # {<worker_id> : <worker_addr>}
-        self.wid2nrun_map = priority_dict()  # {<worker_id> : <n_running>}
-        self._lock        = self.tools.Lock()
-        self._exit_ev     = self.tools.Event()
+        self.addr_set      = set()            # set of connected service addresses
+        self.wid2addr_map  = {}               # {<worker_id> : <worker_addr>}
+        self.wid2nrun_map  = priority_dict()  # {<worker_id> : <n_running>}
+        self._lock         = self.tools.Lock()
+
+        self._exit_ev      = self.tools.Event()
+
+        self._pending = []  # pending requests
 
         # client side socket
         self.inp_sock = self.context.socket(zmq.ROUTER)
@@ -247,12 +248,17 @@ class RPCLoadBalancerBase(object):
     def _update_connections(self, fresh_addrs, stale_addrs):
         """ Updates connections to the services
         """
-        with self._lock:
-            for addr in stale_addrs:
-                self.out_sock.disconnect(addr)
+        #self.logger.debug('_update_connections(%r, %r)', fresh_addrs, stale_addrs)
 
-            for addr in fresh_addrs:
-                self.out_sock.connect(addr)
+        for addr in stale_addrs:
+            self.out_sock.disconnect(addr)
+
+        for addr in fresh_addrs:
+            self.out_sock.connect(addr)
+
+    def _init_peer_refresher(self):
+        "This might be used in a subclass to init the _peer_refresher thread"
+        pass
 
     def _peer_refresher(self):
         """ Refresher thread discovers active RPC services every `self.interval` secs
@@ -265,6 +271,8 @@ class RPCLoadBalancerBase(object):
         addr_set     = self.addr_set
         wid2addr_map = self.wid2addr_map
         wid2nrun_map = self.wid2nrun_map
+
+        self._init_peer_refresher()
 
         while not exit_ev.is_set():
             logger.debug('discovering active services')
@@ -281,14 +289,14 @@ class RPCLoadBalancerBase(object):
 
                 with lock:
                     for addr in fresh_addrs:
-                        #logger.debug(' + %-20s (new)', addr)
+                        logger.debug(' + %-20s (new)', addr)
                         addr_set.add(addr)
                         wid = url2wid_map[addr]
                         wid2addr_map[wid] = addr
                         fresh_wids.append(wid)
 
                     for addr in stale_addrs:
-                        #logger.debug(' - %-20s (old)', addr)
+                        logger.debug(' - %-20s (old)', addr)
                         addr_set.discard(addr)
                         wid = url2wid_map[addr]
                         wid2addr_map.pop(wid, None)
@@ -305,13 +313,17 @@ class RPCLoadBalancerBase(object):
                     with lock:
                         wid2nrun_map.update((wid,0) for wid in fresh_wids)
 
+                    # trigger sending of pending requests
+                    if self._pending:
+                        self.send_requests()
+
             if addrs:
                 exit_ev.wait(self.interval)
             else:
-                logger.warning('no workers were found')
+                logger.warning('no workers, waiting')
                 exit_ev.wait(3)
 
-        logger.debug('thread exited')
+        logger.debug('peer_refresher exited')
 
     def pick_worker(self):
         """ Returns <worker_id> for the least used worker
@@ -342,49 +354,58 @@ class RPCLoadBalancerBase(object):
         # on the request -- thus a necessary routing is already in place.
         self.inp_sock.send_multipart(answer[1:])
 
-    def send_request(self, request):
-        """ Sends a request to the least loaded connected service
+    def send_requests(self, *requests):
+        """ Sends all requests (including pending) to the
+            least loaded connected services.
+
+            Returns a number of sent requests.
         """
+        pending = self._pending
+        pending.extend(requests)
+
+        logger      = self.logger
+        pick_worker = self.pick_worker
+
+        wid = pick_worker()
+        if wid is None:
+            logger.debug('no workers, postponing sending')
+            return 0
+
         wid2addr_map = self.wid2addr_map
         wid2nrun_map = self.wid2nrun_map
         lock         = self._lock
         exit_ev      = self._exit_ev
-        logger       = self.logger
-        pick_worker  = self.pick_worker
         to_service   = self.out_sock
+        n_sent       = 0
 
-        idx = request.index(b'|')
-        try:    ignore = bool(int(request[idx+5]))
-        except: ignore = True
-
-        # send loop
-        while not exit_ev.is_set():
-            wid = pick_worker()
-            if wid is None:
-                # there are no workers, let's wait for the refresher to add some
-                exit_ev.wait(0.33)
-                if self.inp_sock.closed or self.out_sock.closed:
-                    logger.warning('socked was closed while waited for workers')
-                    break # stop sending to allow the receiver loop break
-                continue  # re-try sending
+        while wid and pending and not exit_ev.is_set():
+            request = pending.pop(0)
 
             try:
                 # prepending worker_id we picked to explicitly route the request
                 to_service.send_multipart([wid] + request)
             except Exception, err:
+                pending.insert(0, request)
                 logger.warning('disabling worker %s (id:%s): %s', wid2addr_map.get(wid), wid, err)
                 with lock:
                     wid2nrun_map.pop(wid, None)
                     wid2addr_map.pop(wid, None)
-                continue  # repeat with some other worker
+            else:
+                n_sent += 1
 
-            if not ignore:
-                with lock:
-                    # increment the number of running tasks for this worker
-                    wid2nrun_map[wid] = wid2nrun_map.get(wid, 0) + 1
+                idx = request.index(b'|')
+                try:    ignore = bool(int(request[idx+5]))
+                except: ignore = True
 
-            # successfully passed the request to a service, break the send loop
-            break
+                if not ignore:
+                    with lock:
+                        # increment the number of running tasks for this worker
+                        wid2nrun_map[wid] = wid2nrun_map.get(wid, 0) + 1
+
+            if pending:
+                wid = pick_worker()
+
+        return n_sent
 
     def _close_sockets(self, linger=0):
         self.inp_sock.close(linger)

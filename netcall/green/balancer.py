@@ -43,28 +43,29 @@ class GreenRPCLoadBalancer(RPCLoadBalancerBase):
         """ Request balancer -- forwards client requests to peer workers
             balancing their load by tracking number of running tasks
         """
-        recv_request = self.inp_sock.recv_multipart
-        send_request = self.send_request
-        exit_ev      = self._exit_ev
-        logger       = self.logger
+        recv_request  = self.inp_sock.recv_multipart
+        send_requests = self.send_requests
+        exit_ev       = self._exit_ev
+        logger        = self.logger
 
         # receive loop
         while not exit_ev.is_set():
             try:
                 request = recv_request()
+                #logger.debug('recv: %r', request)
             except Exception, err:
                 logger.warning(err)
                 break
 
             if request[0] == b'QUIT':
-                logger.debug('greenlet received a QUIT signal')
+                logger.debug('req_balancer received a QUIT signal')
                 break
 
             if len(request) < 6 or b'|' not in request:
                 logger.warning('skipping bad request: %r', request)
                 continue
 
-            send_request(request)
+            send_requests(request)
 
         logger.debug('greenlet exited')
 
@@ -85,7 +86,7 @@ class GreenRPCLoadBalancer(RPCLoadBalancerBase):
                 break
 
             if answer[0] == b'QUIT':
-                logger.debug('greenlet received a QUIT signal')
+                logger.debug('ans_forwarder received a QUIT signal')
                 break
 
             if len(answer) < 5 or b'|' not in answer:

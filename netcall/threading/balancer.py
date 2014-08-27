@@ -21,6 +21,7 @@ Authors
 #-----------------------------------------------------------------------------
 
 from random    import randint
+from pickle    import dumps as pickle_dumps, loads as pickle_loads
 from itertools import chain
 
 import zmq
@@ -38,213 +39,139 @@ class ThreadingRPCLoadBalancer(RPCLoadBalancerBase):
     def __init__(self, *ar, **kw):
         super(ThreadingRPCLoadBalancer, self).__init__(*ar, **kw)
 
-        self._client_side_url = 'inproc://%s-%s' % (
+        self._control_addr = 'inproc://%s-%s' % (
             self.__class__.__name__,
             b'%08x' % randint(0, 0xFFFFFFFF)
         )
-        self._service_side_url = 'inproc://%s-%s' % (
-            self.__class__.__name__,
-            b'%08x' % randint(0, 0xFFFFFFFF)
-        )
-
-        self._threads_sync = self.tools.Event()
-        self._control_sync = self.tools.Event()
+        #self._control_sync = self.tools.Event()
 
         self._control = self.context.socket(zmq.PUSH)
-        self._control.connect(self._service_side_url)
+        self._control.connect(self._control_addr)
 
         # start threads
         submit = self.executor.submit
 
-        self.client_io_thread  = submit(self._client_io_thread)
-        self.service_io_thread = submit(self._service_io_thread)
-        self.service_refresher = submit(self._peer_refresher)
+        self.io_thread      = submit(self._io_thread)
+        self.peer_refresher = submit(self._peer_refresher)
 
+    def _init_peer_refresher(self):
         # sync the _control socket with service_io_thread
-        while not self._control_sync.is_set():
-            self._control.send_multipart([b'CONTROL', b'SYNC'])
-            self._control_sync.wait(0.05)
+        self._control.send(b'SYNC')
 
     def _update_connections(self, fresh_addrs, stale_addrs):
         """ Updates connections to the services.
 
-            This thread-safe version delegates the task to the service_io_thread
+            This thread-safe version delegates the task to the io_thread.
+
+            Note: it should be called from the _peer_refresher thread only.
         """
         packet = list(chain(
-            [b'CONTROL', b'UPDATE'],
-            fresh_addrs,
+            [b'UPDATE'],
+            map(bytes, fresh_addrs),
             [b'|'],
-            stale_addrs,
+            map(bytes, stale_addrs),
         ))
         self._control.send_multipart(packet)
 
-    def _service_io_thread(self):
+    def send_requests(self, *requests):
+        """ Triggers sending of pending requests
+
+            This thread-safe version delegates the task to the io_thread.
+
+            Note: it should be called from the _peer_refresher thread only.
+        """
+        packet = [b'SEND']
+        if requests:
+            packet.append(pickle_dumps(requests, protocol=-1))
+        self._control.send_multipart(packet)
+
+    def _handle_control(self, packet):
+        """ This should be called from _service_io_thread
+        """
+        if packet[0] == b'UPDATE':
+            # update service connections
+            idx = packet.index(b'|')
+            fresh_addrs = packet[1:idx]
+            stale_addrs = packet[idx+1:]
+            super(ThreadingRPCLoadBalancer, self)._update_connections(
+                fresh_addrs, stale_addrs
+            )
+
+        elif packet[0] == b'SEND':
+            # trigger sending of pending requests
+            if len(packet) > 1:
+                requests = pickle_loads(packet[1])
+            else:
+                requests = []
+            super(ThreadingRPCLoadBalancer, self).send_requests(*requests)
+
+    def _io_thread(self):
         """ Forwards client requests to connected services balancing their
             load by tracking number of running tasks and receives answers
-            passing them to the _client_io_thread.
+            passing them back to the client.
 
-            Notice: this thread manages I/O of self.out_sock exclusively
-                    -- this is a requirement of ZMQ (a socket must be used
-                    by a single thread)
+            Notice: this thread manages I/O of self.out_sock and self.inp_sock
+                    exclusively -- this is a requirement of ZMQ (a socket must
+                    be used by a single thread)
         """
         exit_ev = self._exit_ev
         logger  = self.logger
 
-        send_request = self.send_request
+        send_requests = super(ThreadingRPCLoadBalancer, self).send_requests
+        send_answer   = self.send_answer
 
-        from_service = self.out_sock
+        client  = self.inp_sock
+        service = self.out_sock
+        control = self.context.socket(zmq.PULL)
+        control.bind(self._control_addr)
 
-        from_client = self.context.socket(zmq.PULL)
-        from_client.bind(self._service_side_url)
-
-        to_client = self.context.socket(zmq.PUSH)
-        to_client.connect(self._client_side_url)
-
-        # sync from_client with the _control socket and client_io_thread
-        for _ in (1, 2):
-            packet = from_client.recv_multipart()
-            if packet[0] == b'CONTROL':
-                self._control_sync.set()
-                logger.debug('service_io_thread synchronized with the _control socket')
-            else:
-                self._threads_sync.set()
-                logger.debug('service_io_thread synchronized with client_io_thread')
+        # sync the control socket with _peer_refresher
+        control.recv()
+        logger.debug('io_thread synchronized with peer_refresher')
 
         _, Poller = get_zmq_classes(env=self.green_env)
         poller = Poller()
-        poller.register(from_client,  zmq.POLLIN)
-        poller.register(from_service, zmq.POLLIN)
+        poller.register(client,  zmq.POLLIN)
+        poller.register(service, zmq.POLLIN)
+        poller.register(control, zmq.POLLIN)
         poll = poller.poll
 
         # -- I/O loop --
         running = True
 
         while running and not exit_ev.is_set():
-            request = None
             try:
                 for socket, _ in poll():
                     packet = socket.recv_multipart()
-                    #logger.debug('received %s', packet)
+                    #logger.debug('recv: %r', packet)
 
-                    if socket is from_service:
-                        if packet[0] == b'QUIT':
-                            logger.debug('service_io_thread received a QUIT signal')
+                    if socket is control:
+                        self._handle_control(packet)
+
+                    elif socket is service:
+                            send_answer(packet)
+
+                    elif socket is client:
+                        if len(packet) < 6 or b'|' not in packet:
+                            logger.warning('skipping bad request: %r', packet)
+                            continue
+                        elif packet[0] == b'QUIT':
+                            logger.debug('io_thread received a QUIT signal')
                             running = False
                             break
-                        # pass the answer to the client_io_thread
-                        to_client.send_multipart(packet)
+                        else:
+                            send_requests(packet)  # send or postpone a request
 
-                    elif packet[0] == b'CONTROL':
-                        if packet[1] == b'UPDATE':
-                            idx = packet.index(b'|')
-                            fresh_addrs = packet[2:idx]
-                            stale_addrs = packet[idx+1:]
-                            super(ThreadingRPCLoadBalancer, self)._update_connections(
-                                fresh_addrs, stale_addrs
-                            )
-                    else:
-                        request = packet
-
-            except Exception, err:
-                logger.warning(err)
-                break
-
-            if not running:
-                break
-
-            if request is None:
-                continue
-
-            if len(request) < 6 or b'|' not in request:
-                logger.warning('skipping bad request: %r', request)
-                continue
-
-            send_request(request)
-
-        # -- cleanup --
-        from_client .close(0)
-        to_client   .close(0)
-
-        logger.debug('service_io_thread exited')
-
-    def _client_io_thread(self):
-        """ Forwards service answers back to the client and receives client
-            requests passing them to the self._service_io_thread.
-
-            Notice: this thread manages I/O of self.inp_sock exclusively
-                    -- this is a requirement of ZMQ (a socket must be used
-                    by a single thread)
-        """
-        exit_ev = self._exit_ev
-        logger  = self.logger
-
-        send_answer = self.send_answer
-
-        from_client = self.inp_sock
-
-        from_service = self.context.socket(zmq.PULL)
-        from_service.bind(self._client_side_url)
-
-        to_service = self.context.socket(zmq.PUSH)
-        to_service.connect(self._service_side_url)
-
-        # sync the to_service socket with service_io_thread
-        while not self._threads_sync.is_set():
-            to_service.send_multipart([b'CLIENT_IO_THREAD', b'SYNC'])
-            self._threads_sync.wait(0.05)
-
-        _, Poller = get_zmq_classes(env=self.green_env)
-        poller = Poller()
-        poller.register(from_client,  zmq.POLLIN)
-        poller.register(from_service, zmq.POLLIN)
-        poll = poller.poll
-
-        # -- I/O loop --
-        running = True
-
-        while running and not exit_ev.is_set():
-            answer = None
-            try:
-                for socket, _ in poll():
-                    packet = socket.recv_multipart()
-                    #logger.debug('received %s', packet)
-                    if socket is from_client:
-                        if packet[0] == b'QUIT':
-                            logger.debug('client_io_thread received a QUIT signal')
-                            running = False
-                            break
-                        # pass the request to the service_io_thread
-                        to_service.send_multipart(packet)
-                    else:
-                        answer = packet
-            except Exception, err:
-                logger.warning(err)
-                break
-
-            if not running:
-                break
-
-            if answer is None:
-                continue
-
-            if len(answer) < 5 or b'|' not in answer:
-                logger.warning('skipping bad answer: %r', answer)
-                continue
-
-            try:
-                send_answer(answer)
             except Exception, err:
                 logger.warning(err)
                 break
 
         # -- cleanup --
-        from_service .close(0)
-        to_service   .close(0)
+        control.close(0)
 
-        logger.debug('client_io_thread exited')
+        logger.debug('io_thread exited')
 
     def _close_sockets(self, linger=0):
         super(ThreadingRPCLoadBalancer, self)._close_sockets(linger)
         self._control.close(linger)
-
 

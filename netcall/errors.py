@@ -17,15 +17,15 @@ class RemoteRPCError(RPCError):
         self.ename     = ename
         self.evalue    = evalue
         self.traceback = tb
-        self.args = (ename, evalue)
+        self.args      = (ename, evalue)
 
     def __repr__(self):
         return "<RemoteError:%s(%s)>" % (self.ename, self.evalue)
 
     def __str__(self):
-        sig = "%s(%s)" % (self.ename, self.evalue)
         if self.traceback:
             return self.traceback
         else:
+            sig = "%s(%s)" % (self.ename, self.evalue)
             return sig
 

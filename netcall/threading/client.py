@@ -55,7 +55,7 @@ class ThreadingRPCClient(RPCClientBase):
         if context is None:
             self.context = Context.instance()
         else:
-            assert isinstance(context, Context)
+            assert isinstance(context, Context), repr(context)
             self.context = context
 
         self._tools    = get_tools(env=None)  # force threading API

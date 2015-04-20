@@ -1,9 +1,9 @@
 from __future__ import absolute_import
 
-from eventlet.greenthread import GreenThread
-from eventlet.greenpool   import GreenPool
-from eventlet.timeout     import Timeout, with_timeout
-from eventlet.api         import GreenletExit
+from eventlet.greenthread        import GreenThread
+from eventlet.greenpool          import GreenPool
+from eventlet.timeout            import Timeout, with_timeout
+from eventlet.support.greenlets  import GreenletExit
 
 from .base    import FutureBase, ExecutorBase
 from .futures import TimeoutError

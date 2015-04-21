@@ -146,7 +146,7 @@ class RPCBase(object):
 
         This raises zmq.ZMQBindError if no free port can be found.
         """
-        if is_str(ports):
+        if isinstance(ports, int):
             ports = [ports]
         for p in ports:
             try:

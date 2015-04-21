@@ -90,7 +90,7 @@ class GreenRPCService(RPCServiceBase):
             while True:
                 try:
                     request = recv_multipart()
-                except Exception, e:
+                except Exception as e:
                     logger.warning(e)
                     break
                 spawn(handle_request, request)

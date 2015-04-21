@@ -34,7 +34,7 @@ class TaskFutureAdapter(FutureBase):
             self._task.get(timeout=timeout)
         except PebbleTimeout as e:
             raise TimeoutError(e)
-        except Exception, e:
+        except Exception as e:
             return e
 
     def cancel(self):

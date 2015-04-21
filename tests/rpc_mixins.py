@@ -210,7 +210,7 @@ class RPCCallsMixIn(object):
 
 
     def test_generator(self):
-        fixture = range(10)
+        fixture = list(range(10))
         @self.service.register
         def yielder():
             for i in fixture:
@@ -237,7 +237,7 @@ class RPCCallsMixIn(object):
                 yield value
 
         gen = self.client.echo(1)
-        self.assertEqual(gen.next(), 1)
+        #self.assertEqual(gen.next(), 1) # Not working on Python 3. Same thing anyway.
         self.assertEqual(next(gen), 1)
         gen = None
         self.assertDictEqual(self.service.generators, {})
@@ -260,8 +260,8 @@ class RPCCallsMixIn(object):
             while True:
                 try:
                     value = (yield value)
-                    print 'Received value', value
-                except Exception, e:
+                    print('Received value', value)
+                except Exception as e:
                     value = e
 
         gen = self.client.echo(1)

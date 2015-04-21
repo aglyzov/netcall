@@ -112,7 +112,7 @@ class GreenRPCClient(RPCClientBase):
             while self._ready:
                 try:
                     msg_list = socket.recv_multipart()
-                except Exception, e:
+                except Exception as e:
                     # the socket must have been closed
                     logger.warning(e)
                     break

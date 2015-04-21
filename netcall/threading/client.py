@@ -20,7 +20,10 @@ Authors
 # Imports
 #-----------------------------------------------------------------------------
 
-from Queue   import Queue
+try:
+    from Queue import Queue
+except ImportError: # For python 3
+    from queue import Queue
 from random  import randint
 from weakref import WeakValueDictionary
 
@@ -77,7 +80,7 @@ class ThreadingRPCClient(RPCClientBase):
         self.req_pub   = self.context.socket(zmq.PUB)
         self.req_addr  = 'inproc://%s-%s' % (
             self.__class__.__name__,
-            b'%08x' % randint(0, 0xFFFFFFFF)
+            '%08x' % randint(0, 0xFFFFFFFF)
         )
         self.req_pub.bind(self.req_addr)
 
@@ -130,10 +133,10 @@ class ThreadingRPCClient(RPCClientBase):
                 logger.debug('received %r', request)
                 if request is None:
                     logger.debug('req_thread received an EXIT signal')
-                    fwd_request([''])  # pass the EXIT signal to the io_thread
+                    fwd_request([b''])  # pass the EXIT signal to the io_thread
                     break              # and exit
                 fwd_request(request)
-        except Exception, e:
+        except Exception as e:
             logger.error(e, exc_info=True)
 
         logger.debug('req_thread exited')
@@ -167,7 +170,7 @@ class ThreadingRPCClient(RPCClientBase):
             logger.debug('I/O thread is synchronized')
             self._sync_ev.set()
             running = True
-        except Exception, e:
+        except Exception as e:
             running = False
             logger.error(e, exc_info=True)
 
@@ -195,7 +198,7 @@ class ThreadingRPCClient(RPCClientBase):
 
                     if reply_list is None:
                         continue
-                except Exception, e:
+                except Exception as e:
                     # the socket must have been closed
                     logger.warning(e)
                     break
@@ -259,6 +262,7 @@ class ThreadingRPCClient(RPCClientBase):
 
         self.logger.debug('signaling the threads to exit')
         self.req_queue.put(None)  # signal the req and io threads to exit
+        self._sync_ev.set()
 
         if self.io_thread:
             self.io_thread.exception()

@@ -22,7 +22,11 @@ Authors:
 # Imports
 #-----------------------------------------------------------------------------
 
-import exceptions
+try:
+    import exceptions
+except ImportError: # Fix for python 3
+    exceptions = __builtins__
+import sys
 
 from sys       import exc_info
 from abc       import abstractmethod
@@ -67,7 +71,7 @@ class RPCServiceBase(RPCBase):
         super(RPCServiceBase, self).__init__(*args, **kwargs)
 
         self.service_id = service_id \
-                       or b'%s/%s' % (self.__class__.__name__, self.identity)
+                       or ('%s/%s' % (self.__class__.__name__, self.identity)).encode()
         self.procedures = {}  # {<name>   : <callable>}
         self.generators = {}  # {<req_id> : <Generator>}
 
@@ -104,7 +108,11 @@ class RPCServiceBase(RPCBase):
         kwargs   = None
         ignore   = None
         boundary = msg_list.index(b'|')
-        name     = msg_list[boundary+2]
+        
+        if sys.version_info.major < 3:
+            name = msg_list[boundary+2]
+        else:
+            name = msg_list[boundary+2].decode()
 
         if name in self._GEN_PROTOCOL:
             proc = name
@@ -115,7 +123,7 @@ class RPCServiceBase(RPCBase):
             data = msg_list[boundary+3:boundary+5]
             args, kwargs = self._serializer.deserialize_args_kwargs(data)
             ignore       = bool(int(msg_list[boundary+5]))
-        except Exception, e:
+        except Exception as e:
             error = e
 
         if proc is None:
@@ -180,7 +188,7 @@ class RPCServiceBase(RPCBase):
         error_dict = {
             'ename'     : etype.__name__,
             'evalue'    : str(evalue),
-            'traceback' : with_tb and format_exc(tb) or None
+            'traceback' : with_tb and format_exc() or None
         }
         data_list = [jsonapi.dumps(error_dict)]
         reply = self._build_reply(request, b'FAIL', data_list)
@@ -252,7 +260,7 @@ class RPCServiceBase(RPCBase):
             else:
                 # call procedure
                 res = proc(*req['args'], **req['kwargs'])
-        except Exception, e:
+        except Exception as e:
             self.logger.error(e, exc_info=True)
             not ignore and self._send_fail(req)
         else:

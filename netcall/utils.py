@@ -19,19 +19,32 @@ _gevent_cache = {}
 # Utilies
 #-----------------------------------------------------------------------------
 
+# Python 2 and 3 transparent support for string type comparison
+try:
+    isinstance("", basestring)
+    def is_str(s):
+        return isinstance(s, basestring)
+except NameError:
+    def is_str(s):
+        return isinstance(s, str)
+
 def setup_logger(logger=None, level='DEBUG', format=None, stream=stderr):
     """ A utility function to setup a basic logging handler for a given logger
     """
     from logging import StreamHandler, Formatter, getLogger, getLevelName
 
     assert logger is not None, 'logger is required (either <str> or <Logger>)'
-
-    if isinstance(logger, basestring):
+    
+    if is_str(logger):
         logger = getLogger(logger)
 
-    if isinstance(level, basestring):
-        level  = getLevelName(level)
-
+    # https://bugs.launchpad.net/oslo-incubator/+bug/1322701
+    # Python 3.4 changed the behaviour of getLevelName().
+    # Apparently, since Python 2.7 setLevel() accept strings and numerics.
+    # (anything before Python 2.7 is not supported by the Python Foundation anyway)
+    #if is_str(level):
+    #    level  = getLevelName(level)
+    
     logger.setLevel(level)
 
     if format is None:
@@ -64,7 +77,7 @@ def import_module(name, cache=modules):
         __loader__  = loader,
         __package__ = pkg_name
     )
-    exec code in module.__dict__
+    exec(code, module.__dict__)
 
     return module
 

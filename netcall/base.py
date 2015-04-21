@@ -27,7 +27,7 @@ from logging import getLogger
 
 import zmq
 
-from .utils       import logger, detect_green_env, get_zmq_classes
+from .utils       import logger, detect_green_env, get_zmq_classes, is_str
 from .serializer  import PickleSerializer
 from .datastruct  import priority_dict
 from .concurrency import get_tools
@@ -52,7 +52,7 @@ class RPCBase(object):
             and deserialize args, kwargs and the result.
         identity   : [optional] <bytes>
         """
-        self.identity    = identity or b'%08x' % randint(0, 0xFFFFFFFF)
+        self.identity    = identity or ('%08x' % randint(0, 0xFFFFFFFF)).encode()
         self.socket      = None
         self._ready      = False
         self._serializer = serializer if serializer is not None else PickleSerializer()
@@ -89,7 +89,7 @@ class RPCBase(object):
 
     def bind(self, urls, only=False):  #{
         """Bind the service to a number of urls of the form proto://address"""
-        if isinstance(urls, basestring):
+        if is_str(urls):
             urls = [urls]
 
         urls  = set(urls)
@@ -111,7 +111,7 @@ class RPCBase(object):
     #}
     def connect(self, urls, only=False):  #{
         """Connect the service to a number of urls of the form proto://address"""
-        if isinstance(urls, basestring):
+        if is_str(urls):
             urls = [urls]
 
         urls      = set(urls)
@@ -146,7 +146,7 @@ class RPCBase(object):
 
         This raises zmq.ZMQBindError if no free port can be found.
         """
-        if isinstance(ports, int):
+        if is_str(ports):
             ports = [ports]
         for p in ports:
             try:
@@ -384,7 +384,7 @@ class RPCLoadBalancerBase(object):
             try:
                 # prepending worker_id we picked to explicitly route the request
                 to_service.send_multipart([wid] + request)
-            except Exception, err:
+            except Exception as err:
                 pending.insert(0, request)
                 logger.warning('disabling worker %s (id:%s): %s', wid2addr_map.get(wid), wid, err)
                 with lock:

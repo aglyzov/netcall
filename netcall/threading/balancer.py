@@ -162,7 +162,7 @@ class ThreadingRPCLoadBalancer(RPCLoadBalancerBase):
                         else:
                             send_requests(packet)  # send or postpone a request
 
-            except Exception, err:
+            except Exception as err:
                 logger.warning(err)
                 break
 

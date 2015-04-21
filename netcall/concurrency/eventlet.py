@@ -33,7 +33,7 @@ class GreenThreadFutureAdapter(FutureBase):
             get()
         except Timeout as e:
             raise TimeoutError(e)
-        except Exception, e:
+        except Exception as e:
             return e
 
     def cancel(self):

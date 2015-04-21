@@ -50,12 +50,12 @@ class RPCClientBase(RPCBase):
         self.socket.setsockopt(zmq.IDENTITY, self.identity)
 
     def _build_request(self, method, args, kwargs, ignore=False, req_id=None):
-        req_id = req_id or b'%x' % randint(0, 0xFFFFFFFF)
-        method = bytes(method)
+        req_id = req_id or ('%x' % randint(0, 0xFFFFFFFF)).encode()
+        method = method.encode()
         msg_list = [b'|', req_id, method]
         data_list = self._serializer.serialize_args_kwargs(args, kwargs)
         msg_list.extend(data_list)
-        msg_list.append(bytes(int(ignore)))
+        msg_list.append(str(int(ignore)).encode())
         return req_id, msg_list
 
     def _send_request(self, request):
@@ -94,7 +94,7 @@ class RPCClientBase(RPCBase):
         elif msg_type in (b'OK', b'YIELD'):
             try:
                 result = self._serializer.deserialize_result(data)
-            except Exception, e:
+            except Exception as e:
                 msg_type = b'FAIL'
                 result   = e
         elif msg_type == b'FAIL':
@@ -106,7 +106,7 @@ class RPCClientBase(RPCBase):
                     result = GeneratorExit()
                 else:
                     result = RemoteRPCError(error['ename'], error['evalue'], error['traceback'])
-            except Exception, e:
+            except Exception as e:
                 logger.error('unexpected error while decoding FAIL', exc_info=True)
                 result = RPCError('unexpected error while decoding FAIL: %s' % e)
         else:

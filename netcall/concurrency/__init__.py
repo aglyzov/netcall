@@ -54,7 +54,11 @@ def get_tools(env='auto'):
         Executor = NotImplementedError  # TODO
 
     elif env in [None, 'threading']:
-        import time, threading, Queue
+        import time, threading
+        try:
+            import Queue
+        except ImportError: # Python 3 support
+            import queue as Queue
         from .pebble import ThreadPoolExecutor as Executor
 
         Future = _Future

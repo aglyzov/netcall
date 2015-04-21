@@ -8,6 +8,7 @@ class ClientBindConnectMixIn(object):
         self.assertTrue(not client.bound)
         self.assertTrue(not client.connected)
 
+
     def test_bind_one(self):
         client = self.client
         url    = self.urls[0]
@@ -88,4 +89,3 @@ class ClientBindConnectMixIn(object):
 
         self.assertEqual(client.connected, set(urls2))
         self.assertTrue(not client.bound)
-

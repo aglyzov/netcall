@@ -53,7 +53,7 @@ class GreenRPCLoadBalancer(RPCLoadBalancerBase):
             try:
                 request = recv_request()
                 #logger.debug('recv: %r', request)
-            except Exception, err:
+            except Exception as err:
                 logger.warning(err)
                 break
 
@@ -81,7 +81,7 @@ class GreenRPCLoadBalancer(RPCLoadBalancerBase):
             try:
                 answer = recv_answer()
                 #logger.debug('received: %r', answer)
-            except Exception, err:
+            except Exception as err:
                 self.logger.warning(err)
                 break
 
@@ -95,7 +95,7 @@ class GreenRPCLoadBalancer(RPCLoadBalancerBase):
 
             try:
                 send_answer(answer)
-            except Exception, err:
+            except Exception as err:
                 logger.warning(err)
                 break
 

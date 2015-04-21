@@ -81,7 +81,7 @@ class ThreadingRPCService(RPCServiceBase):
         self.res_pub   = self.context.socket(zmq.PUB)
         self.res_addr  = 'inproc://%s-%s' % (
             self.__class__.__name__,
-            b'%08x' % randint(0, 0xFFFFFFFF)
+            ('%08x' % randint(0, 0xFFFFFFFF)).encode()
         )
         self.res_pub.bind(self.res_addr)
     #}
@@ -136,7 +136,7 @@ class ThreadingRPCService(RPCServiceBase):
                         break
                     else:
                         fwd_result(result)
-            except Exception, e:
+            except Exception as e:
                 logger.error(e, exc_info=True)
 
             logger.debug('res_thread exited')
@@ -179,7 +179,7 @@ class ThreadingRPCService(RPCServiceBase):
                                 break
                             else:
                                 task_sock.send_multipart(result)
-            except Exception, e:
+            except Exception as e:
                 logger.error(e, exc_info=True)
             finally:
                 # -- cleanup --

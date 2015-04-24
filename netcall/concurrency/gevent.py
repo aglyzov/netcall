@@ -25,7 +25,7 @@ class GreenletFuture(Greenlet, FutureBase):
 
     def cancel(self):
         if not self.ready():
-            self.kill(self.CancelException)
+            self.kill()
         return True
 
     def cancelled(self):

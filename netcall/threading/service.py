@@ -193,7 +193,7 @@ class ThreadingRPCService(RPCServiceBase):
 
         return self.res_thread, self.io_thread
     #}
-    def stop(self):  #{
+    def stop(self, keep_alive=True):  #{
         """ Stop the RPC service (semi-blocking) """
         if not self.res_thread and not self.io_thread:
             return
@@ -216,13 +216,14 @@ class ThreadingRPCService(RPCServiceBase):
             self.io_thread.cancel()
             self.io_thread = None
 
-        # restore bindings/connections
-        self.bind(bound)
-        self.connect(connected)
+        if keep_alive:
+            # restore bindings/connections
+            self.bind(bound)
+            self.connect(connected)
     #}
     def shutdown(self):  #{
         """ Signal the threads to exit and close all sockets """
-        self.stop()
+        self.stop(keep_alive=False)
 
         self.logger.debug('closing the sockets')
         self.socket.close(0)

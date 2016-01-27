@@ -101,7 +101,7 @@ class GreenRPCService(RPCServiceBase):
 
         return self._task
 
-    def stop(self, ):
+    def stop(self, keep_alive=True):
         """ Stop the RPC service (non-blocking) """
         if self._task is None:
             return  # nothing to do
@@ -113,13 +113,14 @@ class GreenRPCService(RPCServiceBase):
         self._task.exception(timeout=0.3)
         self._task.cancel()
         self._task = None
-        # restore bindings/connections
-        self.bind(bound)
-        self.connect(connected)
+        if keep_alive:
+            # restore bindings/connections
+            self.bind(bound)
+            self.connect(connected)
 
     def shutdown(self):
         """Close the socket and signal the reader greenlet to exit"""
-        self.stop()
+        self.stop(keep_alive=False)
 
         self.logger.debug('closing the socket')
         self.socket.close(0)
